@@ -46,82 +46,36 @@ async function daemonExec(action, data = {}) {
   return result.result;
 }
 
-// Fast eval via daemon (falls back to figma-use if all else fails)
+// Fast eval via daemon (falls back to direct connection)
 async function fastEval(code) {
   // Try daemon first
   if (isDaemonRunning()) {
     try {
       return await daemonExec('eval', { code });
     } catch (e) {
-      // Continue to fallbacks
+      // Continue to fallback
     }
   }
 
-  // Try direct connection
-  try {
-    const client = await getFigmaClient();
-    return await client.eval(code);
-  } catch (e) {
-    // Fall back to npx figma-use
-    const tempFile = '/tmp/figma-eval-' + Date.now() + '.js';
-    writeFileSync(tempFile, code);
-    try {
-      const output = execSync(`npx figma-use eval "$(cat ${tempFile})"`, {
-        encoding: 'utf8',
-        stdio: 'pipe',
-        timeout: 30000
-      });
-      unlinkSync(tempFile);
-      try {
-        return JSON.parse(output.trim());
-      } catch {
-        return output.trim();
-      }
-    } finally {
-      try { unlinkSync(tempFile); } catch {}
-    }
-  }
+  // Fall back to direct connection
+  const client = await getFigmaClient();
+  return await client.eval(code);
 }
 
-// Fast render via daemon (falls back to figma-use)
+// Fast render via daemon (falls back to direct connection)
 async function fastRender(jsx) {
   // Try daemon first
   if (isDaemonRunning()) {
     try {
       return await daemonExec('render', { jsx });
     } catch (e) {
-      // Continue to fallbacks
+      // Continue to fallback
     }
   }
 
-  // Try direct connection
-  try {
-    const client = await getFigmaClient();
-    return await client.render(jsx);
-  } catch (e) {
-    // Fall back to npx figma-use
-    const { FigmaClient } = await import('./figma-client.js');
-    const tempClient = new FigmaClient();
-    const code = tempClient.parseJSX(jsx);
-
-    const tempFile = '/tmp/figma-render-' + Date.now() + '.js';
-    writeFileSync(tempFile, code);
-    try {
-      const output = execSync(`npx figma-use eval "$(cat ${tempFile})"`, {
-        encoding: 'utf8',
-        stdio: 'pipe',
-        timeout: 30000
-      });
-      unlinkSync(tempFile);
-      try {
-        return JSON.parse(output.trim());
-      } catch {
-        return { id: 'unknown', name: jsx.match(/name="([^"]+)"/)?.[1] || 'Frame' };
-      }
-    } finally {
-      try { unlinkSync(tempFile); } catch {}
-    }
-  }
+  // Fall back to direct connection
+  const client = await getFigmaClient();
+  return await client.render(jsx);
 }
 
 // Start daemon in background
@@ -2373,16 +2327,9 @@ ${[...fonts].map(f => {
   return "Recreated ${data.elements.length} elements from ${url}";
 })()`;
 
-      // Step 3: Execute via daemon (fast) or figma-use (fallback)
+      // Step 3: Execute via daemon (fast) or direct connection (fallback)
       spinner.text = 'Creating in Figma...';
-
-      if (isDaemonRunning()) {
-        await daemonExec('eval', { code: figmaCode });
-      } else {
-        const figmaScriptPath = '/tmp/figma-recreate-build.js';
-        writeFileSync(figmaScriptPath, figmaCode);
-        execSync(`npx figma-use eval "$(cat ${figmaScriptPath})"`, { stdio: 'pipe', timeout: 60000 });
-      }
+      await fastEval(figmaCode);
 
       spinner.succeed('Page recreated in Figma');
       console.log(chalk.green('✓ ') + chalk.white(`Created ${data.elements.length} elements`));
@@ -3474,22 +3421,10 @@ program
         posX = getNextFreeX();
       }
 
-      // Use figma-use render directly - it has full JSX support
-      let cmd = 'npx figma-use render --stdin --json';
-      if (options.parent) cmd += ` --parent "${options.parent}"`;
-      if (posX !== undefined) cmd += ` --x ${posX}`;
-      cmd += ` --y ${posY}`;
-
-      const output = execSync(cmd, {
-        input: jsx,
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'pipe'],
-        timeout: 30000
-      });
-
-      const result = JSON.parse(output.trim());
-      console.log(chalk.green('✓ Rendered: ' + result.id));
-      if (result.name) console.log(chalk.gray('  name: ' + result.name));
+      // Render via daemon or direct connection (bypasses broken figma-use on Node 20+)
+      const result = await fastRender(jsx);
+      console.log(chalk.green('✓ Rendered: ' + (result?.id || 'unknown')));
+      if (result?.name) console.log(chalk.gray('  name: ' + result.name));
     } catch (e) {
       console.log(chalk.red('✗ Render failed: ' + (e.stderr || e.message)));
     }
@@ -3517,16 +3452,9 @@ program
 
       for (const jsx of jsxArray) {
         try {
-          const cmd = `npx figma-use render --stdin --json --x ${currentX} --y ${currentY}`;
-          const output = execSync(cmd, {
-            input: jsx,
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-            timeout: 30000
-          });
-
-          const result = JSON.parse(output.trim());
-          results.push(result);
+          // Render via daemon or direct connection (bypasses broken figma-use on Node 20+)
+          const result = await fastRender(jsx);
+          results.push(result || {});
           console.log(chalk.green('✓ Rendered: ' + result.id + (result.name ? ' (' + result.name + ')' : '')));
 
           // Get size of created frame for next position
@@ -3665,6 +3593,21 @@ program
     figmaUse(command.join(' '));
   });
 
+// Helper: run figma-use commands with Node 20+ compatibility warning
+function runFigmaUse(cmd, options = {}) {
+  try {
+    execSync(cmd, { stdio: options.stdio || 'inherit', timeout: options.timeout || 60000 });
+  } catch (error) {
+    if (error.message?.includes('enableCompileCache')) {
+      console.log(chalk.red('\n✗ figma-use is broken on Node.js ' + process.version));
+      console.log(chalk.yellow('  This is a known upstream bug (enableCompileCache not available in ESM).'));
+      console.log(chalk.gray('  Workaround: use Node.js 18.x, or wait for a figma-use update.\n'));
+    } else {
+      throw error;
+    }
+  }
+}
+
 // ============ DESIGN ANALYSIS (figma-use) ============
 
 program
@@ -3681,11 +3624,7 @@ program
     if (options.rule) options.rule.forEach(r => cmd += ` --rule ${r}`);
     if (options.preset) cmd += ` --preset ${options.preset}`;
     if (options.json) cmd += ' --json';
-    try {
-      execSync(cmd, { stdio: 'inherit', timeout: 60000 });
-    } catch (error) {
-      // figma-use exits with error if issues found, that's ok
-    }
+    runFigmaUse(cmd);
   });
 
 const analyze = program
@@ -3700,7 +3639,7 @@ analyze
     checkConnection();
     let cmd = 'npx figma-use analyze colors';
     if (options.json) cmd += ' --json';
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 analyze
@@ -3712,7 +3651,7 @@ analyze
     checkConnection();
     let cmd = 'npx figma-use analyze typography';
     if (options.json) cmd += ' --json';
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 analyze
@@ -3723,7 +3662,7 @@ analyze
     checkConnection();
     let cmd = 'npx figma-use analyze spacing';
     if (options.json) cmd += ' --json';
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 analyze
@@ -3734,7 +3673,7 @@ analyze
     checkConnection();
     let cmd = 'npx figma-use analyze clusters';
     if (options.json) cmd += ' --json';
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 // ============ NODE OPERATIONS (figma-use) ============
@@ -3752,7 +3691,7 @@ node
     let cmd = 'npx figma-use node tree';
     if (nodeId) cmd += ` "${nodeId}"`;
     cmd += ` --depth ${options.depth}`;
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 node
@@ -3762,7 +3701,7 @@ node
     checkConnection();
     let cmd = 'npx figma-use node bindings';
     if (nodeId) cmd += ` "${nodeId}"`;
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 node
@@ -3771,7 +3710,7 @@ node
   .action((nodeIds) => {
     checkConnection();
     const cmd = `npx figma-use node to-component "${nodeIds.join(' ')}"`;
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 node
@@ -3780,7 +3719,7 @@ node
   .action((nodeIds) => {
     checkConnection();
     const cmd = `npx figma-use node delete "${nodeIds.join(' ')}"`;
-    execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+    runFigmaUse(cmd);
   });
 
 // ============ EXPORT (figma-use) ============
@@ -3799,9 +3738,9 @@ program
     if (options.matchIcons) cmd += ' --match-icons';
     if (options.output) {
       cmd += ` > "${options.output}"`;
-      execSync(cmd, { shell: true, stdio: 'inherit', timeout: 60000 });
+      runFigmaUse(cmd, { stdio: 'inherit' });
     } else {
-      execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+      runFigmaUse(cmd);
     }
   });
 
@@ -3815,9 +3754,284 @@ program
     if (nodeId) cmd += ` "${nodeId}"`;
     if (options.output) {
       cmd += ` > "${options.output}"`;
-      execSync(cmd, { shell: true, stdio: 'inherit', timeout: 60000 });
+      runFigmaUse(cmd, { stdio: 'inherit' });
     } else {
-      execSync(cmd, { stdio: 'inherit', timeout: 60000 });
+      runFigmaUse(cmd);
+    }
+  });
+
+// ============ MAKE (Figma Make files) ============
+
+const make = program
+  .command('make')
+  .description('Figma Make file commands (theme, components, screenshot)');
+
+// Helper: connect to Make page via CDP
+async function getMakeClient() {
+  const response = await fetch('http://localhost:9222/json');
+  const pages = await response.json();
+  const makePage = pages.find(p => p.url && /figma\.com\/make\//.test(p.url));
+  if (!makePage) {
+    console.log(chalk.red('\n✗ No Figma Make file open\n'));
+    console.log(chalk.gray('  Open a Make file in Figma Desktop first.\n'));
+    process.exit(1);
+  }
+  return { page: makePage, title: makePage.title.replace(' – Figma Make', '').replace(' – Figma', '') };
+}
+
+// Helper: CDP eval on a Make page
+async function makeEval(wsUrl, expression) {
+  const { default: WebSocket } = await import('ws');
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(wsUrl);
+    let msgId = 0;
+    ws.on('open', () => {
+      const id = ++msgId;
+      const handler = (data) => {
+        const msg = JSON.parse(data);
+        if (msg.id === id) {
+          ws.off('message', handler);
+          ws.close();
+          if (msg.result?.exceptionDetails) {
+            reject(new Error(msg.result.exceptionDetails.exception?.value || 'Evaluation error'));
+          } else {
+            resolve(msg.result?.result?.value);
+          }
+        }
+      };
+      ws.on('message', handler);
+      ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } }));
+    });
+    ws.on('error', reject);
+    setTimeout(() => { try { ws.close(); } catch {} reject(new Error('timeout')); }, 15000);
+  });
+}
+
+make
+  .command('info')
+  .description('Show Make file info')
+  .action(async () => {
+    try {
+      const { page, title } = await getMakeClient();
+      console.log(chalk.green('✓ ') + chalk.white('Connected to Make file'));
+      console.log(chalk.gray('  Title: ') + title);
+      console.log(chalk.gray('  URL: ') + page.url.substring(0, 80) + '...');
+
+      // Get file key from URL
+      const keyMatch = page.url.match(/figma\.com\/make\/([^/]+)/);
+      if (keyMatch) console.log(chalk.gray('  File key: ') + keyMatch[1]);
+    } catch (e) {
+      console.log(chalk.red('✗ ' + e.message));
+    }
+  });
+
+make
+  .command('screenshot')
+  .description('Take a screenshot of the Make file preview')
+  .option('-o, --output <file>', 'Output file', 'make-screenshot.png')
+  .action(async (options) => {
+    const spinner = ora('Taking screenshot...').start();
+    try {
+      const { page, title } = await getMakeClient();
+      const { default: WebSocket } = await import('ws');
+
+      const result = await new Promise((resolve, reject) => {
+        const ws = new WebSocket(page.webSocketDebuggerUrl);
+        ws.on('open', () => {
+          const id = 1;
+          ws.on('message', (data) => {
+            const msg = JSON.parse(data);
+            if (msg.id === id) {
+              ws.close();
+              resolve(msg);
+            }
+          });
+          ws.send(JSON.stringify({ id, method: 'Page.captureScreenshot', params: { format: 'png' } }));
+        });
+        ws.on('error', reject);
+        setTimeout(() => { try { ws.close(); } catch {} reject(new Error('timeout')); }, 15000);
+      });
+
+      if (result.result?.data) {
+        const buf = Buffer.from(result.result.data, 'base64');
+        writeFileSync(options.output, buf);
+        spinner.succeed(`Screenshot saved: ${options.output} (${(buf.length / 1024).toFixed(0)} KB)`);
+        console.log(chalk.gray(`  Source: ${title}`));
+      } else {
+        spinner.fail('Screenshot failed');
+      }
+    } catch (e) {
+      spinner.fail('Screenshot failed: ' + e.message);
+    }
+  });
+
+make
+  .command('theme')
+  .description('Extract CSS theme/design tokens from Make file')
+  .option('--json', 'Output as JSON')
+  .action(async (options) => {
+    const spinner = ora('Extracting theme...').start();
+    try {
+      const { page, title } = await getMakeClient();
+
+      // Extract CSS custom properties from the preview iframe
+      const themeData = await makeEval(page.webSocketDebuggerUrl, `
+        (function() {
+          // Get all stylesheets and extract CSS custom properties
+          const vars = {};
+          for (const sheet of document.styleSheets) {
+            try {
+              for (const rule of sheet.cssRules) {
+                const text = rule.cssText || '';
+                const matches = text.matchAll(/--([\\w-]+)\\s*:\\s*([^;]+)/g);
+                for (const m of matches) {
+                  vars['--' + m[1]] = m[2].trim();
+                }
+              }
+            } catch (e) { /* cross-origin stylesheet */ }
+          }
+
+          // Also try computed styles on :root
+          const root = document.documentElement;
+          const computed = getComputedStyle(root);
+          for (let i = 0; i < computed.length; i++) {
+            const prop = computed[i];
+            if (prop.startsWith('--')) {
+              vars[prop] = computed.getPropertyValue(prop).trim();
+            }
+          }
+
+          // Categorize
+          const colors = {};
+          const spacing = {};
+          const radius = {};
+          const typography = {};
+          const other = {};
+
+          for (const [key, val] of Object.entries(vars)) {
+            if (val.match(/^#|^rgb|^hsl|oklch/i) || key.match(/color|bg|foreground|background|border|accent|primary|secondary|destructive|muted/i)) {
+              colors[key] = val;
+            } else if (key.match(/radius/i)) {
+              radius[key] = val;
+            } else if (key.match(/spacing|gap|padding|margin/i) || val.match(/^\\d+(\\.\\d+)?(px|rem|em)$/)) {
+              spacing[key] = val;
+            } else if (key.match(/font|text|line-height|letter/i)) {
+              typography[key] = val;
+            } else {
+              other[key] = val;
+            }
+          }
+
+          return JSON.stringify({ colors, spacing, radius, typography, other, total: Object.keys(vars).length });
+        })()
+      `);
+
+      spinner.stop();
+
+      if (!themeData) {
+        console.log(chalk.yellow('⚠ No CSS custom properties found (preview may not be loaded)'));
+        return;
+      }
+
+      const theme = JSON.parse(themeData);
+
+      if (options.json) {
+        console.log(JSON.stringify(theme, null, 2));
+        return;
+      }
+
+      console.log(chalk.green('✓ ') + chalk.white(`Theme extracted from: ${title}`) + chalk.gray(` (${theme.total} tokens)\n`));
+
+      if (Object.keys(theme.colors).length > 0) {
+        console.log(chalk.cyan.bold('  Colors'));
+        for (const [key, val] of Object.entries(theme.colors)) {
+          console.log(chalk.gray(`    ${key}: `) + chalk.white(val));
+        }
+        console.log();
+      }
+
+      if (Object.keys(theme.radius).length > 0) {
+        console.log(chalk.cyan.bold('  Border Radius'));
+        for (const [key, val] of Object.entries(theme.radius)) {
+          console.log(chalk.gray(`    ${key}: `) + chalk.white(val));
+        }
+        console.log();
+      }
+
+      if (Object.keys(theme.spacing).length > 0) {
+        console.log(chalk.cyan.bold('  Spacing'));
+        for (const [key, val] of Object.entries(theme.spacing)) {
+          console.log(chalk.gray(`    ${key}: `) + chalk.white(val));
+        }
+        console.log();
+      }
+
+      if (Object.keys(theme.typography).length > 0) {
+        console.log(chalk.cyan.bold('  Typography'));
+        for (const [key, val] of Object.entries(theme.typography)) {
+          console.log(chalk.gray(`    ${key}: `) + chalk.white(val));
+        }
+        console.log();
+      }
+    } catch (e) {
+      spinner.fail('Theme extraction failed: ' + e.message);
+    }
+  });
+
+make
+  .command('components')
+  .description('List React components in Make file source')
+  .action(async (options) => {
+    const spinner = ora('Scanning components...').start();
+    try {
+      const { page, title } = await getMakeClient();
+
+      // Scan the page for React component definitions
+      const componentsData = await makeEval(page.webSocketDebuggerUrl, `
+        (function() {
+          // Get page source and find component/function definitions
+          const scripts = document.querySelectorAll('script');
+          const components = new Set();
+          const imports = new Set();
+
+          // Also check for visible UI component names in the editor sidebar
+          const items = document.querySelectorAll('[class*="file"], [data-testid*="file"], [class*="component"]');
+          items.forEach(el => {
+            const text = el.textContent?.trim();
+            if (text && text.match(/\\.(tsx|jsx|ts|js|css)$/)) {
+              components.add(text);
+            }
+          });
+
+          // Try to find file listing in Figma Make's sidebar
+          const allText = document.body.innerText;
+          const fileMatches = allText.match(/[A-Z][a-zA-Z]+\\.(tsx|jsx|ts|js)/g) || [];
+          fileMatches.forEach(f => components.add(f));
+
+          return JSON.stringify({
+            files: Array.from(components).sort(),
+            count: components.size
+          });
+        })()
+      `);
+
+      spinner.stop();
+
+      if (!componentsData) {
+        console.log(chalk.yellow('⚠ Could not scan components (Make editor may not be fully loaded)'));
+        return;
+      }
+
+      const data = JSON.parse(componentsData);
+
+      console.log(chalk.green('✓ ') + chalk.white(`Components in: ${title}`) + chalk.gray(` (${data.count} files)\n`));
+
+      for (const file of data.files) {
+        const icon = file.endsWith('.tsx') || file.endsWith('.jsx') ? '⚛' : file.endsWith('.css') ? '🎨' : '📄';
+        console.log(chalk.gray(`  ${icon} `) + chalk.white(file));
+      }
+    } catch (e) {
+      spinner.fail('Component scan failed: ' + e.message);
     }
   });
 
