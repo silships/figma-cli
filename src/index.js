@@ -355,7 +355,14 @@ function figmaUse(args, options = {}) {
       const pages = JSON.parse(result);
       const figmaPage = pages.find(p => p.url && /figma\.com\/(design|file|make|board)\//.test(p.url));
       if (figmaPage) {
-        const status = `Connected to Figma\n  File: ${figmaPage.title.replace(' – Figma', '')}`;
+        const typeMatch = figmaPage.url.match(/figma\.com\/(design|file|make|board)\//);
+        const fileType = typeMatch ? typeMatch[1] : 'unknown';
+        const isMake = fileType === 'make' || fileType === 'board';
+        const typeLabel = isMake ? ` (${fileType === 'make' ? 'Make' : 'Board'} file)` : '';
+        let status = `Connected to Figma\n  File: ${figmaPage.title.replace(' – Figma', '')}${typeLabel}`;
+        if (isMake) {
+          status += "\n  ⚠ Make/Board files don't support eval/render — open a Design file for full CLI access";
+        }
         if (!options.silent) console.log(status);
         return status;
       }

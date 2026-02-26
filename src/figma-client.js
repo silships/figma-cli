@@ -13,6 +13,8 @@ export class FigmaClient {
     this.msgId = 0;
     this.callbacks = new Map();
     this.pageTitle = null;
+    this.pageUrl = null;
+    this.fileType = null; // 'design', 'make', 'board', or 'file'
   }
 
   /**
@@ -55,8 +57,10 @@ export class FigmaClient {
     if (pageTitle) {
       page = pages.find(p => p.title.includes(pageTitle) && isDesignPage(p));
     } else {
-      // First design/file/make page (like figma-use does)
-      page = pages.find(isDesignPage);
+      // Prefer design/file pages over make/board (they have Plugin API)
+      const isDesignOrFile = (p) =>
+        p.url && /figma\.com\/(design|file)\//.test(p.url);
+      page = pages.find(isDesignOrFile) || pages.find(isDesignPage);
     }
 
     if (!page) {
@@ -64,6 +68,11 @@ export class FigmaClient {
     }
 
     this.pageTitle = page.title;
+    this.pageUrl = page.url;
+
+    // Detect file type from URL
+    const typeMatch = page.url.match(/figma\.com\/(design|file|make|board)\//);
+    this.fileType = typeMatch ? typeMatch[1] : 'unknown';
 
     return new Promise((resolve, reject) => {
       this.ws = new WebSocket(page.webSocketDebuggerUrl);
@@ -98,11 +107,26 @@ export class FigmaClient {
   }
 
   /**
+   * Check if connected to a Make or Board file (no Plugin API available)
+   */
+  get isMakeFile() {
+    return this.fileType === 'make' || this.fileType === 'board';
+  }
+
+  /**
    * Evaluate JavaScript in the Figma context
    */
   async eval(expression) {
     if (!this.ws) {
       throw new Error('Not connected to Figma');
+    }
+
+    if (this.isMakeFile) {
+      throw new Error(
+        `Connected to a Figma ${this.fileType === 'make' ? 'Make' : 'Board'} file — ` +
+        'the Figma Plugin API is not available in Make/Board files. ' +
+        'Open a Design file to use eval, render, and other commands.'
+      );
     }
 
     const result = await this.send('Runtime.evaluate', {

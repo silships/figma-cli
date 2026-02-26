@@ -20,13 +20,16 @@ async function isConnectionHealthy() {
   if (!client || !client.ws) return false;
   if (client.ws.readyState !== 1) return false; // 1 = OPEN
 
+  // Make/Board files are "connected" but don't have the Plugin API
+  if (client.isMakeFile) return true;
+
   try {
     // Quick check if figma object exists
     const result = await Promise.race([
-      client.eval('typeof figma !== "undefined"'),
+      client.send('Runtime.evaluate', { expression: 'typeof figma !== "undefined"', returnByValue: true }),
       new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 2000))
     ]);
-    return result === true;
+    return result?.result?.result?.value === true;
   } catch {
     return false;
   }
@@ -57,7 +60,8 @@ async function getClient() {
   try {
     client = new FigmaClient();
     await client.connect();
-    console.log('[daemon] Connected to Figma');
+    const typeLabel = client.fileType === 'make' ? 'Make' : client.fileType === 'board' ? 'Board' : 'Design';
+    console.log(`[daemon] Connected to Figma ${typeLabel} file: ${client.pageTitle || 'untitled'}`);
   } finally {
     isConnecting = false;
   }
@@ -81,7 +85,13 @@ async function handleRequest(req, res) {
   if (req.url === '/health') {
     const healthy = await isConnectionHealthy();
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: healthy ? 'ok' : 'stale', connected: !!client, healthy }));
+    res.end(JSON.stringify({
+      status: healthy ? 'ok' : 'stale',
+      connected: !!client,
+      healthy,
+      fileType: client?.fileType || null,
+      pageTitle: client?.pageTitle || null
+    }));
     return;
   }
 
