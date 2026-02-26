@@ -26,6 +26,9 @@
   "bugs": {
     "url": "https://github.com/silships/figma-cli/issues"
   },
+  "scripts": {
+    "test": "node --test --test-name-pattern='.' tests/"
+  },
   "engines": {
     "node": ">=18"
   },
