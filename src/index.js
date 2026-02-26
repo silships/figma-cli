@@ -353,7 +353,7 @@ function figmaUse(args, options = {}) {
     try {
       const result = execSync('curl -s http://localhost:9222/json', { encoding: 'utf8', stdio: 'pipe' });
       const pages = JSON.parse(result);
-      const figmaPage = pages.find(p => p.url?.includes('figma.com/design') || p.url?.includes('figma.com/file'));
+      const figmaPage = pages.find(p => p.url && /figma\.com\/(design|file|make|board)\//.test(p.url));
       if (figmaPage) {
         const status = `Connected to Figma\n  File: ${figmaPage.title.replace(' – Figma', '')}`;
         if (!options.silent) console.log(status);

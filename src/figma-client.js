@@ -46,18 +46,17 @@ export class FigmaClient {
     const response = await fetch('http://localhost:9222/json');
     const pages = await response.json();
 
-    // Find design/file pages (not feed, home, etc.)
+    // Find design/file/make pages (not feed, home, etc.)
+    // Use regex with word boundary to avoid matching /files/ (feed/home pages)
+    const isDesignPage = (p) =>
+      p.url && /figma\.com\/(design|file|make|board)\//.test(p.url);
+
     let page;
     if (pageTitle) {
-      page = pages.find(p =>
-        p.title.includes(pageTitle) &&
-        (p.url?.includes('figma.com/design') || p.url?.includes('figma.com/file'))
-      );
+      page = pages.find(p => p.title.includes(pageTitle) && isDesignPage(p));
     } else {
-      // First design/file page (like figma-use does)
-      page = pages.find(p =>
-        p.url?.includes('figma.com/design') || p.url?.includes('figma.com/file')
-      );
+      // First design/file/make page (like figma-use does)
+      page = pages.find(isDesignPage);
     }
 
     if (!page) {
