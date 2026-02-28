@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { execSync, spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -17,11 +18,32 @@ import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort } from
 // Daemon configuration
 const DAEMON_PORT = 3456;
 const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
+const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', '.daemon-token');
+
+// Generate and save a new session token for daemon authentication
+function generateDaemonToken() {
+  const configDir = join(homedir(), '.figma-ds-cli');
+  if (!existsSync(configDir)) mkdirSync(configDir, { recursive: true });
+  const token = randomBytes(32).toString('hex');
+  writeFileSync(DAEMON_TOKEN_FILE, token, { mode: 0o600 });
+  return token;
+}
+
+// Read the current daemon session token
+function getDaemonToken() {
+  try {
+    return readFileSync(DAEMON_TOKEN_FILE, 'utf8').trim();
+  } catch {
+    return null;
+  }
+}
 
 // Check if daemon is running
 function isDaemonRunning() {
   try {
-    const response = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${DAEMON_PORT}/health`, {
+    const token = getDaemonToken();
+    const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
+    const response = execSync(`curl -s -o /dev/null -w "%{http_code}"${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: 1000
@@ -34,9 +56,13 @@ function isDaemonRunning() {
 
 // Send command to daemon (uses native fetch in Node 18+)
 async function daemonExec(action, data = {}) {
+  const token = getDaemonToken();
+  const headers = { 'Content-Type': 'application/json' };
+  if (token) headers['X-Daemon-Token'] = token;
+
   const response = await fetch(`http://localhost:${DAEMON_PORT}/exec`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify({ action, ...data }),
     signal: AbortSignal.timeout(60000)
   });
@@ -78,7 +104,7 @@ async function fastEval(code) {
         return output.trim();
       }
     } finally {
-      try { unlinkSync(tempFile); } catch {}
+      try { unlinkSync(tempFile); } catch { }
     }
   }
 }
@@ -119,7 +145,7 @@ async function fastRender(jsx) {
         return { id: 'unknown', name: jsx.match(/name="([^"]+)"/)?.[1] || 'Frame' };
       }
     } finally {
-      try { unlinkSync(tempFile); } catch {}
+      try { unlinkSync(tempFile); } catch { }
     }
   }
 }
@@ -130,10 +156,13 @@ function startDaemon(forceRestart = false, mode = 'auto') {
   if (forceRestart) {
     stopDaemon();
     // Wait for port to be released
-    try { execSync('sleep 0.3', { stdio: 'pipe' }); } catch {}
+    try { execSync('sleep 0.3', { stdio: 'pipe' }); } catch { }
   } else if (isDaemonRunning()) {
     return true; // Already running
   }
+
+  // Generate session token before spawning daemon
+  generateDaemonToken();
 
   const daemonScript = join(dirname(fileURLToPath(import.meta.url)), 'daemon.js');
   const child = spawn('node', [daemonScript], {
@@ -155,14 +184,14 @@ function stopDaemon() {
       const pid = readFileSync(DAEMON_PID_FILE, 'utf8').trim();
       try {
         process.kill(parseInt(pid), 'SIGTERM');
-      } catch {}
+      } catch { }
       unlinkSync(DAEMON_PID_FILE);
     }
     // Also try to kill by port
     if (IS_MAC || IS_LINUX) {
       execSync(`lsof -ti:${DAEMON_PORT} | xargs kill -9 2>/dev/null || true`, { stdio: 'pipe' });
     }
-  } catch {}
+  } catch { }
 }
 
 // Platform detection
@@ -241,7 +270,7 @@ function loadConfig() {
     if (existsSync(CONFIG_FILE)) {
       return JSON.parse(readFileSync(CONFIG_FILE, 'utf8'));
     }
-  } catch {}
+  } catch { }
   return {};
 }
 
@@ -284,11 +313,13 @@ function figmaEvalSync(code) {
       const payload = JSON.stringify({ action: 'eval', code: wrappedCode });
       const payloadFile = `/tmp/figma-payload-${Date.now()}.json`;
       writeFileSync(payloadFile, payload);
+      const daemonToken = getDaemonToken();
+      const daemonTokenHeader = daemonToken ? ` -H "X-Daemon-Token: ${daemonToken}"` : '';
       const result = execSync(
-        `curl -s -X POST http://127.0.0.1:3456/exec -H "Content-Type: application/json" -d @${payloadFile}`,
+        `curl -s -X POST http://127.0.0.1:${DAEMON_PORT}/exec -H "Content-Type: application/json"${daemonTokenHeader} -d @${payloadFile}`,
         { encoding: 'utf8', timeout: 30000 }
       );
-      try { unlinkSync(payloadFile); } catch {}
+      try { unlinkSync(payloadFile); } catch { }
       if (!result || result.trim() === '') {
         throw new Error('Empty response from daemon');
       }
@@ -298,13 +329,15 @@ function figmaEvalSync(code) {
     } catch (e) {
       // Check if we're in Safe Mode (plugin only) - don't fall through to CDP
       try {
-        const healthRes = execSync(`curl -s http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+        const healthToken = getDaemonToken();
+        const healthTokenHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
+        const healthRes = execSync(`curl -s${healthTokenHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
         const health = JSON.parse(healthRes);
         if (health.plugin && !health.cdp) {
           // Safe Mode - re-throw the error, don't try CDP fallback
           throw e;
         }
-      } catch {}
+      } catch { }
       // Fall through to direct CDP connection
     }
   }
@@ -335,12 +368,12 @@ function figmaEvalSync(code) {
     execSync(`node ${tempFile}`, { stdio: 'pipe', timeout: 30000 });
     if (existsSync(resultFile)) {
       const data = JSON.parse(readFileSync(resultFile, 'utf8'));
-      try { execSync(`rm -f ${tempFile} ${resultFile}`, { stdio: 'pipe' }); } catch {}
+      try { execSync(`rm -f ${tempFile} ${resultFile}`, { stdio: 'pipe' }); } catch { }
       if (data.success) return data.result;
       throw new Error(data.error);
     }
   } catch (e) {
-    try { execSync(`rm -f ${tempFile} ${resultFile}`, { stdio: 'pipe' }); } catch {}
+    try { execSync(`rm -f ${tempFile} ${resultFile}`, { stdio: 'pipe' }); } catch { }
     throw e;
   }
   return null;
@@ -443,12 +476,14 @@ function figmaUse(args, options = {}) {
 async function checkConnection() {
   // First check daemon (works for both CDP and Plugin modes)
   try {
-    const health = execSync(`curl -s http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+    const connToken = getDaemonToken();
+    const connTokenHeader = connToken ? ` -H "X-Daemon-Token: ${connToken}"` : '';
+    const health = execSync(`curl -s${connTokenHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
     const data = JSON.parse(health);
     if (data.status === 'ok' && (data.plugin || data.cdp)) {
       return true;
     }
-  } catch {}
+  } catch { }
 
   // Fallback: check CDP directly
   const connected = await FigmaClient.isConnected();
@@ -466,12 +501,14 @@ async function checkConnection() {
 function checkConnectionSync() {
   // First check daemon (works for both CDP and Plugin modes)
   try {
-    const health = execSync(`curl -s http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
+    const syncToken = getDaemonToken();
+    const syncTokenHeader = syncToken ? ` -H "X-Daemon-Token: ${syncToken}"` : '';
+    const health = execSync(`curl -s${syncTokenHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
     const data = JSON.parse(health);
     if (data.status === 'ok' && (data.plugin || data.cdp)) {
       return true;
     }
-  } catch {}
+  } catch { }
 
   // Fallback: check CDP directly
   try {
@@ -635,7 +672,7 @@ program.action(async () => {
       console.log(chalk.gray(`  File: ${client.pageTitle.replace(' – Figma', '')}`));
       console.log(chalk.gray(`  Page: ${info.name}`));
       client.close();
-    } catch {}
+    } catch { }
     console.log();
     showQuickStart();
   } else {
@@ -908,7 +945,9 @@ program
       for (let i = 0; i < 30; i++) {  // Wait up to 30 seconds
         await new Promise(r => setTimeout(r, 1000));
         try {
-          const healthRes = execSync(`curl -s http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
+          const pluginToken = getDaemonToken();
+          const pluginTokenHeader = pluginToken ? ` -H "X-Daemon-Token: ${pluginToken}"` : '';
+          const healthRes = execSync(`curl -s${pluginTokenHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8' });
           const health = JSON.parse(healthRes);
           if (health.plugin) {
             pluginSpinner.succeed('Plugin connected!');
@@ -916,7 +955,7 @@ program
             pluginConnected = true;
             break;
           }
-        } catch {}
+        } catch { }
       }
 
       if (!pluginConnected) {
@@ -976,7 +1015,7 @@ program
     try {
       killFigma();
       await new Promise(r => setTimeout(r, 500));
-    } catch {}
+    } catch { }
 
     startFigma();
     console.log(chalk.green('✓ Figma started\n'));
@@ -1004,9 +1043,39 @@ program
     const daemonSpinner = ora('Starting speed daemon...').start();
     try {
       startDaemon(true, 'auto');  // Auto mode: uses plugin if connected, otherwise CDP
-      await new Promise(r => setTimeout(r, 1500));
-      if (isDaemonRunning()) {
+
+      // Poll for daemon readiness (wait for CDP connection, up to 15 seconds)
+      let daemonReady = false;
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          const token = getDaemonToken();
+          const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
+          const healthRes = execSync(`curl -s --max-time 2${tokenHeader} http://127.0.0.1:${DAEMON_PORT}/health`, {
+            encoding: 'utf8',
+            stdio: 'pipe',
+            timeout: 3000
+          });
+          const health = JSON.parse(healthRes);
+          if (health.status === 'ok' && health.cdp) {
+            daemonReady = true;
+            break;
+          }
+          // If connecting, keep waiting
+          if (health.status === 'connecting' || health.cdpConnecting) {
+            continue;
+          }
+          // If server is up but not connected after a few attempts, keep trying
+          // (daemon retry loop may still be running)
+        } catch {
+          // Server not up yet, keep waiting
+        }
+      }
+
+      if (daemonReady) {
         daemonSpinner.succeed('Speed daemon running (commands are now 10x faster)');
+      } else if (isDaemonRunning()) {
+        daemonSpinner.warn('Daemon running but CDP not connected yet — commands may be slower initially');
       } else {
         daemonSpinner.warn('Daemon failed to start, commands will be slower');
       }
@@ -1615,7 +1684,10 @@ daemon
     }
     console.log(chalk.blue('Reconnecting to Figma...'));
     try {
-      const response = await fetch(`http://localhost:${DAEMON_PORT}/reconnect`);
+      const reconnToken = getDaemonToken();
+      const reconnHeaders = {};
+      if (reconnToken) reconnHeaders['X-Daemon-Token'] = reconnToken;
+      const response = await fetch(`http://localhost:${DAEMON_PORT}/reconnect`, { headers: reconnHeaders });
       const result = await response.json();
       if (result.error) {
         console.log(chalk.red('✗ Reconnect failed: ' + result.error));
@@ -1766,38 +1838,38 @@ tokens
       // Semantic tokens with Light/Dark mode values (references to primitives)
       // Based on shadcn/ui default zinc theme
       const semanticTokens = {
-        'background':           { light: 'white',  dark: 'zinc/950' },
-        'foreground':           { light: 'zinc/950',       dark: 'zinc/50' },
-        'card':                 { light: 'white',  dark: 'zinc/950' },
-        'card-foreground':      { light: 'zinc/950',       dark: 'zinc/50' },
-        'popover':              { light: 'white',  dark: 'zinc/950' },
-        'popover-foreground':   { light: 'zinc/950',       dark: 'zinc/50' },
-        'primary':              { light: 'zinc/900',       dark: 'zinc/50' },
-        'primary-foreground':   { light: 'zinc/50',        dark: 'zinc/900' },
-        'secondary':            { light: 'zinc/100',       dark: 'zinc/800' },
-        'secondary-foreground': { light: 'zinc/900',       dark: 'zinc/50' },
-        'muted':                { light: 'zinc/100',       dark: 'zinc/800' },
-        'muted-foreground':     { light: 'zinc/500',       dark: 'zinc/400' },
-        'accent':               { light: 'zinc/100',       dark: 'zinc/800' },
-        'accent-foreground':    { light: 'zinc/900',       dark: 'zinc/50' },
-        'destructive':          { light: 'red/500',        dark: 'red/900' },
-        'destructive-foreground': { light: 'zinc/50',      dark: 'zinc/50' },
-        'border':               { light: 'zinc/200',       dark: 'zinc/800' },
-        'input':                { light: 'zinc/200',       dark: 'zinc/800' },
-        'ring':                 { light: 'zinc/950',       dark: 'zinc/300' },
-        'chart-1':              { light: 'orange/500',     dark: 'blue/500' },
-        'chart-2':              { light: 'teal/500',       dark: 'emerald/500' },
-        'chart-3':              { light: 'blue/500',       dark: 'amber/500' },
-        'chart-4':              { light: 'amber/500',      dark: 'rose/500' },
-        'chart-5':              { light: 'rose/500',       dark: 'violet/500' },
-        'sidebar-background':   { light: 'zinc/50',        dark: 'zinc/950' },
-        'sidebar-foreground':   { light: 'zinc/900',       dark: 'zinc/50' },
-        'sidebar-primary':      { light: 'zinc/900',       dark: 'zinc/50' },
+        'background': { light: 'white', dark: 'zinc/950' },
+        'foreground': { light: 'zinc/950', dark: 'zinc/50' },
+        'card': { light: 'white', dark: 'zinc/950' },
+        'card-foreground': { light: 'zinc/950', dark: 'zinc/50' },
+        'popover': { light: 'white', dark: 'zinc/950' },
+        'popover-foreground': { light: 'zinc/950', dark: 'zinc/50' },
+        'primary': { light: 'zinc/900', dark: 'zinc/50' },
+        'primary-foreground': { light: 'zinc/50', dark: 'zinc/900' },
+        'secondary': { light: 'zinc/100', dark: 'zinc/800' },
+        'secondary-foreground': { light: 'zinc/900', dark: 'zinc/50' },
+        'muted': { light: 'zinc/100', dark: 'zinc/800' },
+        'muted-foreground': { light: 'zinc/500', dark: 'zinc/400' },
+        'accent': { light: 'zinc/100', dark: 'zinc/800' },
+        'accent-foreground': { light: 'zinc/900', dark: 'zinc/50' },
+        'destructive': { light: 'red/500', dark: 'red/900' },
+        'destructive-foreground': { light: 'zinc/50', dark: 'zinc/50' },
+        'border': { light: 'zinc/200', dark: 'zinc/800' },
+        'input': { light: 'zinc/200', dark: 'zinc/800' },
+        'ring': { light: 'zinc/950', dark: 'zinc/300' },
+        'chart-1': { light: 'orange/500', dark: 'blue/500' },
+        'chart-2': { light: 'teal/500', dark: 'emerald/500' },
+        'chart-3': { light: 'blue/500', dark: 'amber/500' },
+        'chart-4': { light: 'amber/500', dark: 'rose/500' },
+        'chart-5': { light: 'rose/500', dark: 'violet/500' },
+        'sidebar-background': { light: 'zinc/50', dark: 'zinc/950' },
+        'sidebar-foreground': { light: 'zinc/900', dark: 'zinc/50' },
+        'sidebar-primary': { light: 'zinc/900', dark: 'zinc/50' },
         'sidebar-primary-foreground': { light: 'zinc/50', dark: 'zinc/900' },
-        'sidebar-accent':       { light: 'zinc/100',       dark: 'zinc/800' },
+        'sidebar-accent': { light: 'zinc/100', dark: 'zinc/800' },
         'sidebar-accent-foreground': { light: 'zinc/900', dark: 'zinc/50' },
-        'sidebar-border':       { light: 'zinc/200',       dark: 'zinc/800' },
-        'sidebar-ring':         { light: 'zinc/950',       dark: 'zinc/300' }
+        'sidebar-border': { light: 'zinc/200', dark: 'zinc/800' },
+        'sidebar-ring': { light: 'zinc/950', dark: 'zinc/300' }
       };
 
       const code = `(async () => {
@@ -2510,7 +2582,7 @@ if (f) {
         figmaUse(`eval "${convertSingle.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: true });
         if (comp.row === 0) row0X += comp.width + gap;
         else row1X += comp.width + 24;
-      } catch {}
+      } catch { }
     }
     spinner.succeed('9 components with variables');
 
@@ -2833,7 +2905,7 @@ program
       if (result) console.log(chalk.gray(result.trim()));
 
       // Cleanup
-      try { unlinkSync(tempFile); } catch {}
+      try { unlinkSync(tempFile); } catch { }
     } catch (e) {
       spinner.fail('Failed: ' + e.message);
     }
@@ -2935,7 +3007,7 @@ const { chromium } = require('playwright');
       }
 
       // Cleanup
-      try { unlinkSync(scriptPath); } catch {}
+      try { unlinkSync(scriptPath); } catch { }
     } catch (e) {
       spinner.fail('Analysis failed: ' + e.message);
     }
@@ -3184,9 +3256,9 @@ const { chromium } = require('playwright');
   };
 
 ${[...fonts].map(f => {
-  const { family, style } = JSON.parse(f);
-  return `  await loadFont("${family}", "${style}");`;
-}).join('\n')}
+        const { family, style } = JSON.parse(f);
+        return `  await loadFont("${family}", "${style}");`;
+      }).join('\n')}
 
   // Smart positioning
   let smartX = 0;
@@ -3295,7 +3367,7 @@ ${[...fonts].map(f => {
       console.log(chalk.gray(`  Source: ${url}`));
 
       // Cleanup
-      try { unlinkSync(scriptPath); } catch {}
+      try { unlinkSync(scriptPath); } catch { }
     } catch (e) {
       spinner.fail('Recreation failed: ' + e.message);
       if (process.env.DEBUG) console.error(e);
@@ -3417,7 +3489,7 @@ program
       }
 
       // Cleanup
-      try { unlinkSync(tempInput); } catch {}
+      try { unlinkSync(tempInput); } catch { }
     } catch (e) {
       spinner.fail('Failed: ' + e.message);
     }
