@@ -97,6 +97,7 @@ export class FigmaClient {
           if (defaultCheck.result?.result?.value === true) {
             // figma is in default context (older Figma)
             this.executionContextId = null;
+            this._setupPostConnect();
             resolve(this);
             return;
           }
@@ -112,6 +113,7 @@ export class FigmaClient {
 
               if (check.result?.result?.value === true) {
                 this.executionContextId = ctx.id;
+                this._setupPostConnect();
                 resolve(this);
                 return;
               }
@@ -135,8 +137,9 @@ export class FigmaClient {
         }
 
         if (msg.id && this.callbacks.has(msg.id)) {
-          this.callbacks.get(msg.id)(msg);
+          const cb = this.callbacks.get(msg.id);
           this.callbacks.delete(msg.id);
+          cb.resolve(msg);
         }
       });
 
@@ -147,10 +150,19 @@ export class FigmaClient {
   }
 
   send(method, params = {}) {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== 1 /* OPEN */) {
+        reject(new Error('Not connected to Figma CDP'));
+        return;
+      }
       const id = ++this.msgId;
-      this.callbacks.set(id, resolve);
-      this.ws.send(JSON.stringify({ id, method, params }));
+      this.callbacks.set(id, { resolve, reject });
+      try {
+        this.ws.send(JSON.stringify({ id, method, params }));
+      } catch (err) {
+        this.callbacks.delete(id);
+        reject(err);
+      }
     });
   }
 
@@ -3662,11 +3674,53 @@ export const Default: Story = {};
     `);
   }
 
+  /**
+   * Set up post-connection WebSocket handlers: drain-on-close, error propagation, keepalive.
+   * Called once after the Figma execution context is confirmed.
+   */
+  _setupPostConnect() {
+    // Replace the connect-phase error handler (which used the Promise's reject)
+    // with one that drains pending callbacks so evals fail fast instead of hanging.
+    this.ws.removeAllListeners('error');
+    this.ws.on('error', (err) => {
+      const connErr = new Error(`CDP WebSocket error: ${err.message}`);
+      for (const { reject } of this.callbacks.values()) reject(connErr);
+      this.callbacks.clear();
+    });
+
+    // Drain pending callbacks when the connection closes unexpectedly.
+    this.ws.on('close', () => {
+      const connErr = new Error('CDP WebSocket closed unexpectedly');
+      for (const { reject } of this.callbacks.values()) reject(connErr);
+      this.callbacks.clear();
+      this.ws = null;
+    });
+
+    // Keepalive: ping every 30 s to prevent Electron/Chrome from dropping idle connections.
+    this._keepaliveInterval = setInterval(() => {
+      if (this.ws && this.ws.readyState === 1 /* OPEN */) {
+        try { this.ws.ping(); } catch { /* ignore if WS already closing */ }
+      } else {
+        clearInterval(this._keepaliveInterval);
+        this._keepaliveInterval = null;
+      }
+    }, 30000);
+  }
+
   close() {
+    if (this._keepaliveInterval) {
+      clearInterval(this._keepaliveInterval);
+      this._keepaliveInterval = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+    // Drain any callbacks that are still pending
+    for (const { reject } of this.callbacks.values()) {
+      reject(new Error('Connection closed'));
+    }
+    this.callbacks.clear();
   }
 }
 
