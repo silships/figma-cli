@@ -1,11 +1,12 @@
 #!/bin/bash
 
-# fig-start — Launch Figma CLI + Claude Code
+# fig-start — Launch Figma CLI + Claude Code (or Web UI)
 # Connects to Figma, lets you pick an open file, then launches Claude Code.
 #
 # Usage:
 #   fig-start          → Yolo Mode (default) with file selector
 #   fig-start --safe   → Safe Mode (plugin-based, no patching)
+#   fig-start --web    → Start browser-based chat UI instead of Claude Code
 #   fig-start --setup  → set/change the figma-cli repo path
 
 CONFIG_DIR="$HOME/.figma-cli"
@@ -112,10 +113,13 @@ select_file() {
 
 # Handle flags
 SAFE_MODE=false
-if [ "$1" = "--safe" ]; then
-    SAFE_MODE=true
-    shift
-fi
+WEB_MODE=false
+for arg in "$@"; do
+    case "$arg" in
+        --safe) SAFE_MODE=true ;;
+        --web)  WEB_MODE=true  ;;
+    esac
+done
 
 if [ "$1" = "--setup" ]; then
     printf "${BOLD}Enter the path to your figma-cli repo:${NC} "
@@ -155,8 +159,12 @@ fi
 CLI="$REPO_PATH/src/index.js"
 
 echo ""
-if [ "$SAFE_MODE" = true ]; then
+if [ "$SAFE_MODE" = true ] && [ "$WEB_MODE" = true ]; then
+    echo -e "${BOLD}  fig-start${NC} ${DIM}— Figma CLI launcher (Safe Mode + Web UI)${NC}"
+elif [ "$SAFE_MODE" = true ]; then
     echo -e "${BOLD}  fig-start${NC} ${DIM}— Figma CLI launcher (Safe Mode)${NC}"
+elif [ "$WEB_MODE" = true ]; then
+    echo -e "${BOLD}  fig-start${NC} ${DIM}— Figma CLI launcher (Web UI)${NC}"
 else
     echo -e "${BOLD}  fig-start${NC} ${DIM}— Figma CLI launcher${NC}"
 fi
@@ -183,10 +191,16 @@ if [ "$SAFE_MODE" = true ]; then
     echo ""
 
     # Skip file selector (Safe Mode only sees the active file via plugin)
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
-    echo ""
-    cd "$REPO_PATH" || exit 1
-    exec claude
+    if [ "$WEB_MODE" = true ]; then
+        echo -e "  ${GREEN}Starting Web UI...${NC}"
+        echo ""
+        exec node "$REPO_PATH/src/web-ui.js"
+    else
+        echo -e "  ${GREEN}Launching Claude Code...${NC}"
+        echo ""
+        cd "$REPO_PATH" || exit 1
+        exec claude
+    fi
 else
     # ── Yolo Mode: CDP-based connection ──
     # Check if CDP is already accessible (avoid killing/restarting Figma)
@@ -252,27 +266,71 @@ for f in files:
     if [ ${#FILE_TITLES[@]} -eq 0 ]; then
         echo -e "  ${YELLOW}No Figma files detected.${NC} Open a file in Figma first."
         echo ""
-        echo -e "  Launching Claude Code anyway..."
-        echo ""
-        cd "$REPO_PATH" || exit 1
-        exec claude
+        if [ "$WEB_MODE" = true ]; then
+            echo -e "  Starting Web UI anyway..."
+            echo ""
+            exec node "$REPO_PATH/src/web-ui.js"
+        else
+            echo -e "  Launching Claude Code anyway..."
+            echo ""
+            cd "$REPO_PATH" || exit 1
+            exec claude
+        fi
     fi
 
     SELECTED_TITLE=""
 
     echo ""
-    SELECTED_TITLE=$(select_file "${FILE_TITLES[@]}")
+    # Prepend Auto option so user can follow the active Figma tab
+    PICKER_OPTIONS=("[Auto] Active file" "${FILE_TITLES[@]}")
+    SELECTED_TITLE=$(select_file "${PICKER_OPTIONS[@]}")
     if [ -z "$SELECTED_TITLE" ]; then
         echo "  Cancelled."
         exit 0
     fi
 
-    echo -e "  ${GREEN}✓ File: ${BOLD}${SELECTED_TITLE}${NC}"
+    # Save selection to ~/.figma-ds-cli/active-file.json
+    ACTIVE_FILE_DIR="$HOME/.figma-ds-cli"
+    ACTIVE_FILE="$ACTIVE_FILE_DIR/active-file.json"
+    mkdir -p "$ACTIVE_FILE_DIR"
+
+    if [ "$SELECTED_TITLE" = "[Auto] Active file" ]; then
+        printf '{"mode":"auto"}\n' > "$ACTIVE_FILE"
+        echo -e "  ${GREEN}✓ File: ${BOLD}Active file (auto)${NC}"
+    else
+        # Look up url + id from FILES_JSON, write locked config
+        echo "$FILES_JSON" | python3 -c "
+import json, sys, os
+files = json.load(sys.stdin)
+target = sys.argv[1]
+for f in files:
+    t = f.get('title', 'Untitled').replace(' \u2013 Figma', '').replace(' - Figma', '')
+    if t == target:
+        data = {'mode': 'locked', 'title': t, 'url': f.get('url', ''), 'id': f.get('id', '')}
+        path = os.path.join(os.path.expanduser('~'), '.figma-ds-cli', 'active-file.json')
+        with open(path, 'w') as fh:
+            fh.write(json.dumps(data, indent=2))
+        break
+" "$SELECTED_TITLE"
+        echo -e "  ${GREEN}✓ File: ${BOLD}${SELECTED_TITLE}${NC} ${DIM}(locked — run fig switch to change)${NC}"
+        # Restart daemon so it connects to the newly locked file
+        if [ "$DAEMON_OK" = "true" ]; then
+            echo -e "  Restarting daemon for locked file..."
+            node "$CLI" daemon restart > /dev/null 2>&1
+            sleep 1
+        fi
+    fi
     echo ""
 
-    # Step 4: Launch Claude Code from repo directory
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
-    echo ""
-    cd "$REPO_PATH" || exit 1
-    exec claude
+    # Step 4: Launch Claude Code or Web UI
+    if [ "$WEB_MODE" = true ]; then
+        echo -e "  ${GREEN}Starting Web UI...${NC}"
+        echo ""
+        exec node "$REPO_PATH/src/web-ui.js"
+    else
+        echo -e "  ${GREEN}Launching Claude Code...${NC}"
+        echo ""
+        cd "$REPO_PATH" || exit 1
+        exec claude
+    fi
 fi

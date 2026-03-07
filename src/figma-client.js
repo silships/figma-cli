@@ -58,9 +58,14 @@ export class FigmaClient {
     const isDesignPage = (p) =>
       p.url && /figma\.com\/(design|file)\//.test(p.url);
 
+    const stripFigma = (t) => t.replace(/\s*[–\-]\s*Figma\s*$/i, '').trim();
+
     let page;
     if (pageTitle) {
-      page = pages.find(p => p.title.includes(pageTitle) && isDesignPage(p));
+      // Exact match first (e.g. "Test" must not match "Test (Copy)")
+      page = pages.find(p => isDesignPage(p) && stripFigma(p.title) === pageTitle);
+      // Fallback to substring if no exact match
+      if (!page) page = pages.find(p => isDesignPage(p) && p.title.includes(pageTitle));
     } else {
       page = pages.find(isDesignPage);
     }

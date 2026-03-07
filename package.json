@@ -7,7 +7,8 @@
   "type": "module",
   "bin": {
     "figma-ds-cli": "src/index.js",
-    "fig-start": "bin/fig-start"
+    "fig-start": "bin/fig-start",
+    "fig-switch": "bin/fig-switch"
   },
   "files": [
     "src",

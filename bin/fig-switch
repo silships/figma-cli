@@ -1,0 +1,187 @@
+#!/bin/bash
+
+# fig-switch — Switch the active Figma file for fig-start / figma-cli
+#
+# Usage:
+#   fig-switch    → Interactive file picker, restarts daemon on new selection
+
+CONFIG_DIR="$HOME/.figma-cli"
+CONFIG_FILE="$CONFIG_DIR/config.json"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ── Helpers ──
+
+get_daemon_token() {
+    local token_file="$HOME/.figma-ds-cli/.daemon-token"
+    if [ -f "$token_file" ]; then
+        cat "$token_file" 2>/dev/null
+    fi
+}
+
+get_repo_path() {
+    if [ -f "$CONFIG_FILE" ]; then
+        python3 -c "import json; print(json.load(open('$CONFIG_FILE')).get('repoPath',''))" 2>/dev/null
+    fi
+}
+
+# ── Arrow-key selector ──
+
+select_file() {
+    local options=("$@")
+    local count=${#options[@]}
+    local selected=0
+
+    tput civis > /dev/tty 2>/dev/null
+    trap 'tput cnorm > /dev/tty 2>/dev/null' EXIT
+
+    draw_menu() {
+        if [ "$1" = "redraw" ]; then
+            printf "\033[%dA" "$((count + 2))" > /dev/tty
+        fi
+
+        printf "${BOLD}Switch Figma file (↑↓ arrows, Enter to confirm):${NC}\n" > /dev/tty
+        printf "\n" > /dev/tty
+        for i in "${!options[@]}"; do
+            if [ "$i" -eq "$selected" ]; then
+                printf "  ${GREEN}▸ %s${NC}\n" "${options[$i]}" > /dev/tty
+            else
+                printf "    %s\n" "${options[$i]}" > /dev/tty
+            fi
+        done
+    }
+
+    draw_menu "first"
+
+    while true; do
+        IFS= read -rsn1 key < /dev/tty
+
+        case "$key" in
+            $'\x1b')
+                read -rsn2 seq < /dev/tty
+                case "$seq" in
+                    '[A')
+                        ((selected--))
+                        [ "$selected" -lt 0 ] && selected=$((count - 1))
+                        ;;
+                    '[B')
+                        ((selected++))
+                        [ "$selected" -ge "$count" ] && selected=0
+                        ;;
+                esac
+                ;;
+            ''|$'\n'|$'\r')
+                tput cnorm > /dev/tty 2>/dev/null
+                printf "\n" > /dev/tty
+                printf '%s' "${options[$selected]}"
+                return
+                ;;
+            'q')
+                tput cnorm > /dev/tty 2>/dev/null
+                printf "\n" > /dev/tty
+                return
+                ;;
+        esac
+
+        draw_menu "redraw"
+    done
+}
+
+# ── Main ──
+
+REPO_PATH=$(get_repo_path)
+if [ -z "$REPO_PATH" ] || [ ! -d "$REPO_PATH" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+    if [ -f "$SCRIPT_DIR/src/index.js" ]; then
+        REPO_PATH="$SCRIPT_DIR"
+    else
+        echo -e "${RED}figma-cli repo not found. Run fig-start --setup first.${NC}"
+        exit 1
+    fi
+fi
+
+CLI="$REPO_PATH/src/index.js"
+
+echo ""
+echo -e "${BOLD}  fig-switch${NC} ${DIM}— Switch active Figma file${NC}"
+echo ""
+
+# List open files
+FILES_JSON=$(node "$CLI" files 2>/dev/null)
+
+if [ -z "$FILES_JSON" ] || echo "$FILES_JSON" | grep -q '"error"'; then
+    echo -e "  ${RED}Could not list files.${NC} Is Figma running and connected?"
+    exit 1
+fi
+
+FILE_TITLES=()
+while IFS= read -r title; do
+    FILE_TITLES+=("$title")
+done < <(echo "$FILES_JSON" | python3 -c "
+import json, sys
+files = json.load(sys.stdin)
+for f in files:
+    t = f.get('title', 'Untitled').replace(' \u2013 Figma', '').replace(' - Figma', '')
+    print(t)
+" 2>/dev/null)
+
+if [ ${#FILE_TITLES[@]} -eq 0 ]; then
+    echo -e "  ${YELLOW}No Figma design files found.${NC} Open a file in Figma first."
+    exit 1
+fi
+
+# Show picker with Auto option first
+PICKER_OPTIONS=("[Auto] Active file" "${FILE_TITLES[@]}")
+SELECTED=$(select_file "${PICKER_OPTIONS[@]}")
+
+if [ -z "$SELECTED" ]; then
+    echo "  Cancelled."
+    exit 0
+fi
+
+# Save to active-file.json
+ACTIVE_FILE_DIR="$HOME/.figma-ds-cli"
+ACTIVE_FILE="$ACTIVE_FILE_DIR/active-file.json"
+mkdir -p "$ACTIVE_FILE_DIR"
+
+if [ "$SELECTED" = "[Auto] Active file" ]; then
+    printf '{"mode":"auto"}\n' > "$ACTIVE_FILE"
+    echo -e "  ${GREEN}✓ Switched to: ${BOLD}Active file (auto)${NC}"
+else
+    echo "$FILES_JSON" | python3 -c "
+import json, sys, os
+files = json.load(sys.stdin)
+target = sys.argv[1]
+for f in files:
+    t = f.get('title', 'Untitled').replace(' \u2013 Figma', '').replace(' - Figma', '')
+    if t == target:
+        data = {'mode': 'locked', 'title': t, 'url': f.get('url', ''), 'id': f.get('id', '')}
+        path = os.path.join(os.path.expanduser('~'), '.figma-ds-cli', 'active-file.json')
+        with open(path, 'w') as fh:
+            fh.write(json.dumps(data, indent=2))
+        break
+" "$SELECTED"
+    echo -e "  ${GREEN}✓ Switched to: ${BOLD}${SELECTED}${NC}"
+fi
+
+# Restart daemon so it reconnects to the new file
+echo -e "  Restarting daemon..."
+node "$CLI" daemon restart > /dev/null 2>&1
+sleep 1
+
+DAEMON_TOKEN=$(get_daemon_token)
+if [ -n "$DAEMON_TOKEN" ]; then
+    STATUS=$(curl -s -o /dev/null -w "%{http_code}" -H "X-Daemon-Token: $DAEMON_TOKEN" http://localhost:3456/health 2>/dev/null)
+    if echo "$STATUS" | grep -q "200"; then
+        echo -e "  ${GREEN}✓ Daemon reconnected${NC}"
+    else
+        echo -e "  ${YELLOW}Daemon may still be starting...${NC}"
+    fi
+fi
+
+echo ""
