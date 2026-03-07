@@ -12,7 +12,7 @@
  */
 
 import { createServer } from 'http';
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
 import { join, dirname, extname } from 'path';
 import { homedir } from 'os';
 import { fileURLToPath } from 'url';
@@ -90,6 +90,14 @@ async function daemonReconnect() {
     signal: AbortSignal.timeout(5000),
   }).catch(() => {});
 }
+
+// Keep server alive through unhandled errors
+process.on('uncaughtException', (err) => {
+  console.error('[web-ui] uncaughtException:', err.message);
+});
+process.on('unhandledRejection', (err) => {
+  console.error('[web-ui] unhandledRejection:', err?.message ?? err);
+});
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
@@ -248,6 +256,7 @@ const server = createServer(async (req, res) => {
   if (url.pathname === '/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
+    req.on('error', (err) => { console.error('[web-ui] req error:', err.message); res.end(); });
     req.on('end', () => {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -261,37 +270,31 @@ const server = createServer(async (req, res) => {
       try { ({ prompt, sessionId, imageBase64, imageMimeType } = JSON.parse(body)); }
       catch { sse({ t: 'err', v: 'Bad request' }); res.end(); return; }
 
-      // When an image is attached, use --input-format stream-json to send multimodal content.
+      // When an image is attached, save to a temp file so Claude can read it via its Read tool.
       // Otherwise use the simpler -p text mode.
-      let args, stdinData;
+      let imgTmpPath = null;
+      let finalPrompt = prompt;
       if (imageBase64) {
-        args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
-        if (sessionId) args.push('--resume', sessionId);
-        stdinData = JSON.stringify({
-          type: 'user',
-          message: {
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: imageMimeType || 'image/png', data: imageBase64 } },
-              { type: 'text', text: prompt },
-            ],
-          },
-        }) + '\n';
-      } else {
-        args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
-        if (sessionId) args.push('--resume', sessionId);
+        const ext = (imageMimeType || 'image/png').split('/')[1] || 'png';
+        imgTmpPath = `/tmp/figma-cli-img-${Date.now()}.${ext}`;
+        writeFileSync(imgTmpPath, Buffer.from(imageBase64, 'base64'));
+        finalPrompt = `Read the image file at ${imgTmpPath}\n\n${prompt || 'Describe what you see in this image.'}`;
       }
 
+      const args = ['-p', finalPrompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+      if (sessionId) args.push('--resume', sessionId);
+
+      if (imgTmpPath) console.log('[IMG] tmp:', imgTmpPath, 'prompt:', finalPrompt.slice(0, 100));
       const claude = spawn('claude', args, {
         cwd: REPO_DIR,
         env: { ...process.env },
-        stdio: stdinData ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      if (stdinData) {
-        claude.stdin.write(stdinData);
-        claude.stdin.end();
-      }
+      // Kill subprocess if client disconnects (user cancelled)
+      res.on('close', () => {
+        if (!claude.killed) claude.kill('SIGTERM');
+      });
 
       let lineBuf = '';
 
@@ -331,14 +334,16 @@ const server = createServer(async (req, res) => {
       }
 
       claude.stdout.on('data', (chunk) => {
-        lineBuf += chunk.toString();
+        const raw = chunk.toString();
+        if (imgTmpPath) console.log('[IMG stdout]', raw.slice(0, 300));
+        lineBuf += raw;
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop();
         for (const line of lines) processLine(line);
       });
-
       claude.stderr.on('data', (chunk) => {
         const text = chunk.toString().trim();
+        if (imgTmpPath) console.log('[IMG stderr]', text.slice(0, 300));
         if (text && !text.startsWith('Loaded') && !text.startsWith('API')) {
           sse({ t: 'text', v: text + '\n' });
         }
@@ -349,7 +354,9 @@ const server = createServer(async (req, res) => {
         res.end();
       });
 
-      claude.on('close', () => {
+      claude.on('close', (code) => {
+        if (imgTmpPath) console.log('[IMG] close code:', code, 'lineBuf:', lineBuf.slice(0, 200));
+        if (imgTmpPath) try { unlinkSync(imgTmpPath); } catch {}
         if (lineBuf.trim()) processLine(lineBuf);
         res.end();
       });

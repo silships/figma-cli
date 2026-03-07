@@ -171,9 +171,18 @@ document.addEventListener('paste', (e) => {
 
 // ── Chat ──────────────────────────────────────────────────────────────────────
 
-let sessionId = null; // claude session ID for multi-turn
-let busy      = false;
-let recording = false;
+let sessionId      = null; // claude session ID for multi-turn
+let busy           = false;
+let recording      = false;
+let abortController = null;
+
+const ICON_SEND = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+    stroke-linecap="round" stroke-linejoin="round">
+  <line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>
+</svg>`;
+const ICON_STOP = `<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+  <rect x="4" y="4" width="16" height="16" rx="2"/>
+</svg>`;
 
 function setStatus(text, state) {
   dot.className        = 'dot' + (state ? ' ' + state : '');
@@ -206,7 +215,10 @@ function createAiBubble() {
 
   const thinkEl = document.createElement('div');
   thinkEl.className = 'thinking';
+  thinkEl.title = 'Click to cancel';
+  thinkEl.style.cursor = 'pointer';
   thinkEl.innerHTML = `<div class="thinking-dots"><span></span><span></span><span></span></div> Thinking…`;
+  thinkEl.addEventListener('click', cancelThinking);
   bub.appendChild(thinkEl);
 
   wrap.appendChild(avatar);
@@ -268,6 +280,16 @@ function summariseInput(input) {
   return str.length > 120 ? str.slice(0, 120) + '…' : str;
 }
 
+function cancelThinking() {
+  if (!busy || !abortController) return;
+  abortController.abort();
+}
+
+sendBtn.addEventListener('click', () => {
+  if (busy) cancelThinking();
+  else sendMessage(inp.value);
+});
+
 async function sendMessage(text) {
   text = text.trim();
   if ((!text && !attachedImage) || busy) return;
@@ -277,13 +299,16 @@ async function sendMessage(text) {
   renderPreview();
 
   busy = true;
-  sendBtn.disabled = true;
+  sendBtn.innerHTML = ICON_STOP;
+  sendBtn.title = 'Stop (Esc)';
   inp.value = '';
   inp.style.height = '';
 
   addUserMsg(text, image?.dataUrl);
   const bub = createAiBubble();
   setStatus('Thinking…', 'busy');
+
+  abortController = new AbortController();
 
   const body = {
     prompt: text || 'Describe what you see in this screenshot.',
@@ -296,6 +321,7 @@ async function sendMessage(text) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      signal: abortController.signal,
     });
 
     if (!res.ok) throw new Error('Server error ' + res.status);
@@ -330,12 +356,18 @@ async function sendMessage(text) {
     refreshFigmaFile();
 
   } catch (err) {
-    bub.addText('Error: ' + err.message);
-    setStatus('Error', 'err');
-    setTimeout(() => setStatus('Ready', ''), 4000);
+    if (err.name !== 'AbortError') {
+      bub.addText('Error: ' + err.message);
+      setStatus('Error', 'err');
+      setTimeout(() => setStatus('Ready', ''), 4000);
+    }
   } finally {
     busy = false;
+    abortController = null;
+    sendBtn.innerHTML = ICON_SEND;
+    sendBtn.title = 'Send (Enter)';
     sendBtn.disabled = false;
+    setStatus('Ready', '');
     inp.focus();
   }
 }
@@ -345,9 +377,13 @@ inp.addEventListener('input', () => {
   inp.style.height = Math.min(inp.scrollHeight, 120) + 'px';
 });
 inp.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { e.preventDefault(); cancelThinking(); return; }
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(inp.value); }
 });
-sendBtn.addEventListener('click', () => sendMessage(inp.value));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && busy) cancelThinking();
+});
 
 // Voice
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
