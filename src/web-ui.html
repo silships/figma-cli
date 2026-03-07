@@ -48,7 +48,17 @@
     <div class="container">
       <div class="input-box">
         <textarea id="inp" placeholder="Ask Claude to create, modify, or analyze your Figma design…" rows="1"></textarea>
+        <div id="imgPreview" class="img-preview"></div>
         <div class="input-actions">
+          <input type="file" id="imgInput" accept="image/*" style="display:none">
+          <button class="btn btn-img" id="imgBtn" title="Attach image (or paste screenshot)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </button>
           <button class="btn btn-mic" id="mic" title="Voice input">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">

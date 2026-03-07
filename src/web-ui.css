@@ -268,6 +268,36 @@ textarea {
   &:hover { color: var(--text-1); }
   &.on { background: var(--primary); color: var(--white); animation: pulse 1s infinite; }
 }
+.btn-img {
+  background: transparent; color: var(--text-3); border: none;
+
+  &:hover { color: var(--text-1); }
+  &.has-img { color: var(--primary); }
+}
+
+/* Image preview inside input box */
+.img-preview {
+  display: none; padding: 8px 12px 0; gap: 8px; align-items: flex-start;
+
+  &.show { display: flex; }
+}
+.img-thumb {
+  position: relative; display: inline-block; flex-shrink: 0;
+
+  img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; border: 1px solid var(--border-2); display: block; }
+}
+.img-remove {
+  position: absolute; top: -5px; right: -5px;
+  width: 18px; height: 18px; background: var(--surface-3); border-radius: 50%;
+  border: 1px solid var(--border); cursor: pointer; color: var(--text-2); font-size: 10px;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+
+/* Image in user message bubble */
+.msg-img {
+  display: block; max-width: 200px; max-height: 200px;
+  border-radius: 8px; object-fit: cover; margin-bottom: 6px;
+}
 .hint { font-size: 11px; color: var(--surface-3); text-align: center; padding: 0 20px 10px; }
 svg { display: block; pointer-events: none; }
 

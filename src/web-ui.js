@@ -257,20 +257,41 @@ const server = createServer(async (req, res) => {
 
       const sse = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
 
-      let prompt, sessionId;
-      try { ({ prompt, sessionId } = JSON.parse(body)); }
+      let prompt, sessionId, imageBase64, imageMimeType;
+      try { ({ prompt, sessionId, imageBase64, imageMimeType } = JSON.parse(body)); }
       catch { sse({ t: 'err', v: 'Bad request' }); res.end(); return; }
 
-      // Build claude command: stream-json gives us tool calls + text in real time
-      // --dangerously-skip-permissions: no prompts since stdin is closed
-      const args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
-      if (sessionId) args.push('--resume', sessionId);
+      // When an image is attached, use --input-format stream-json to send multimodal content.
+      // Otherwise use the simpler -p text mode.
+      let args, stdinData;
+      if (imageBase64) {
+        args = ['--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+        if (sessionId) args.push('--resume', sessionId);
+        stdinData = JSON.stringify({
+          type: 'user',
+          message: {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: imageMimeType || 'image/png', data: imageBase64 } },
+              { type: 'text', text: prompt },
+            ],
+          },
+        }) + '\n';
+      } else {
+        args = ['-p', prompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+        if (sessionId) args.push('--resume', sessionId);
+      }
 
       const claude = spawn('claude', args, {
         cwd: REPO_DIR,
         env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: stdinData ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'],
       });
+
+      if (stdinData) {
+        claude.stdin.write(stdinData);
+        claude.stdin.end();
+      }
 
       let lineBuf = '';
 

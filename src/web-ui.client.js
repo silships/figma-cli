@@ -9,6 +9,9 @@ const fileBtn   = document.getElementById('fileBtn');
 const chevron   = document.getElementById('chevron');
 const fileDropdown = document.getElementById('fileDropdown');
 const filePicker   = document.getElementById('filePicker');
+const imgBtn       = document.getElementById('imgBtn');
+const imgInput     = document.getElementById('imgInput');
+const imgPreviewEl = document.getElementById('imgPreview');
 
 // ── File picker ───────────────────────────────────────────────────────────────
 
@@ -114,6 +117,58 @@ fileBtn.addEventListener('click', (e) => {
 document.addEventListener('click', () => { if (dropOpen) closeDropdown(); });
 fileDropdown.addEventListener('click', e => e.stopPropagation());
 
+// ── Image attach ──────────────────────────────────────────────────────────────
+
+let attachedImage = null; // { base64, mimeType, dataUrl }
+
+function attachImage(file) {
+  if (!file || !file.type.startsWith('image/')) return;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    attachedImage = { base64: dataUrl.split(',')[1], mimeType: file.type, dataUrl };
+    renderPreview();
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderPreview() {
+  if (!attachedImage) {
+    imgPreviewEl.className = 'img-preview';
+    imgBtn.classList.remove('has-img');
+    return;
+  }
+  imgPreviewEl.className = 'img-preview show';
+  imgPreviewEl.innerHTML = `<div class="img-thumb">
+    <img src="${attachedImage.dataUrl}" alt="Attached">
+    <button class="img-remove" id="imgRemove">✕</button>
+  </div>`;
+  document.getElementById('imgRemove').addEventListener('click', () => {
+    attachedImage = null;
+    renderPreview();
+  });
+  imgBtn.classList.add('has-img');
+}
+
+imgBtn.addEventListener('click', () => imgInput.click());
+imgInput.addEventListener('change', () => {
+  if (imgInput.files[0]) attachImage(imgInput.files[0]);
+  imgInput.value = '';
+});
+
+// Paste screenshot from clipboard
+document.addEventListener('paste', (e) => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      e.preventDefault();
+      attachImage(item.getAsFile());
+      break;
+    }
+  }
+});
+
 // ── Chat ──────────────────────────────────────────────────────────────────────
 
 let sessionId = null; // claude session ID for multi-turn
@@ -127,11 +182,13 @@ function setStatus(text, state) {
 
 function scroll() { feedEl.scrollTop = feedEl.scrollHeight; }
 
-function addUserMsg(text) {
+function addUserMsg(text, imageDataUrl) {
   const d = document.createElement('div');
   d.className = 'msg user';
+  const escaped = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const imgHtml = imageDataUrl ? `<img src="${imageDataUrl}" class="msg-img" alt="Screenshot">` : '';
   d.innerHTML = `<div class="avatar">U</div>
-    <div class="bubble">${text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</div>`;
+    <div class="bubble">${imgHtml}${escaped}</div>`;
   feedEl.appendChild(d);
   scroll();
 }
@@ -213,22 +270,32 @@ function summariseInput(input) {
 
 async function sendMessage(text) {
   text = text.trim();
-  if (!text || busy) return;
+  if ((!text && !attachedImage) || busy) return;
+
+  const image = attachedImage;
+  attachedImage = null;
+  renderPreview();
 
   busy = true;
   sendBtn.disabled = true;
   inp.value = '';
   inp.style.height = '';
 
-  addUserMsg(text);
+  addUserMsg(text, image?.dataUrl);
   const bub = createAiBubble();
   setStatus('Thinking…', 'busy');
+
+  const body = {
+    prompt: text || 'Describe what you see in this screenshot.',
+    sessionId,
+  };
+  if (image) { body.imageBase64 = image.base64; body.imageMimeType = image.mimeType; }
 
   try {
     const res = await fetch('/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: text, sessionId }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) throw new Error('Server error ' + res.status);
