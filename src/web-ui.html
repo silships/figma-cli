@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Figma CLI</title>
+  <link rel="stylesheet" href="/web-ui.css">
+</head>
+
+<body id="app">
+
+  <header>
+    <div class="logo">
+      <img src="/assets/ids-logo.webp" alt="Figma CLI Logo">
+      <h1>Figma DS CLI</h1>
+    </div>
+
+    <div class="file-picker" id="filePicker">
+      <button class="file-btn" id="fileBtn" title="Switch active Figma file">
+        <span id="figmaFile">—</span>
+        <svg class="chevron" id="chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="2 4 6 8 10 4"/>
+        </svg>
+      </button>
+      <div class="file-dropdown" id="fileDropdown"></div>
+    </div>
+
+    <div class="conn">
+      <div class="dot" id="dot"></div>
+      <span id="connText">Ready</span>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <div class="feed" id="feed">
+      <div class="msg ai">
+        <div class="avatar">✦</div>
+        <div class="bubble">
+          <div class="resp-text">Hi! I'm your Figma design assistant with full access to your Figma file. Ask me to create components, set up design tokens, analyze your design, or anything else.</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- End of container -->
+
+  <div class="bar">
+    <div class="container">
+      <div class="input-box">
+        <textarea id="inp" placeholder="Ask Claude to create, modify, or analyze your Figma design…" rows="1"></textarea>
+        <div class="input-actions">
+          <button class="btn btn-mic" id="mic" title="Voice input">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+          </button>
+          <button class="btn btn-send" id="send" title="Send (Enter)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="19" x2="12" y2="5" />
+              <polyline points="5 12 12 5 19 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+
+  <script src="/web-ui.client.js"></script>
+</body>
+
+</html>

@@ -191,9 +191,20 @@ async function getCdpClient() {
 
   isCdpConnecting = true;
   try {
+    // Read active file preference (set by fig-start or fig-switch)
+    let lockedTitle = null;
+    try {
+      const activeFilePath = join(homedir(), '.figma-ds-cli', 'active-file.json');
+      const activeFile = JSON.parse(readFileSync(activeFilePath, 'utf8'));
+      if (activeFile.mode === 'locked' && activeFile.title) {
+        lockedTitle = activeFile.title;
+        console.log(`[daemon] Targeting locked file: "${lockedTitle}"`);
+      }
+    } catch { /* no active-file.json = auto mode */ }
+
     const ClientClass = await getFigmaClient();
     cdpClient = new ClientClass();
-    await cdpClient.connect();
+    await cdpClient.connect(lockedTitle);
     lastHealthCheck = Date.now();
     lastHealthResult = true;
     console.log('[daemon] Connected to Figma via CDP (Yolo Mode)');
