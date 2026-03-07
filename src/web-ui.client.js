@@ -283,6 +283,7 @@ function summariseInput(input) {
 function cancelThinking() {
   if (!busy || !abortController) return;
   abortController.abort();
+  fetch('/cancel', { method: 'POST' }).catch(() => {});
 }
 
 sendBtn.addEventListener('click', () => {
@@ -351,7 +352,6 @@ async function sendMessage(text) {
       }
     }
 
-    bub.finishThinking();
     setStatus('Ready', '');
     refreshFigmaFile();
 
@@ -362,6 +362,7 @@ async function sendMessage(text) {
       setTimeout(() => setStatus('Ready', ''), 4000);
     }
   } finally {
+    bub.finishThinking();
     busy = false;
     abortController = null;
     sendBtn.innerHTML = ICON_SEND;

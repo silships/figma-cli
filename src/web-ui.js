@@ -101,6 +101,8 @@ process.on('unhandledRejection', (err) => {
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
+let activeClause = null; // currently running Claude subprocess
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -253,6 +255,12 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/cancel' && req.method === 'POST') {
+    if (activeClause && !activeClause.killed) activeClause.kill('SIGTERM');
+    res.writeHead(200); res.end();
+    return;
+  }
+
   if (url.pathname === '/chat' && req.method === 'POST') {
     let body = '';
     req.on('data', c => body += c);
@@ -284,15 +292,12 @@ const server = createServer(async (req, res) => {
       const args = ['-p', finalPrompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
       if (sessionId) args.push('--resume', sessionId);
 
-      if (imgTmpPath) console.log('[IMG] tmp:', imgTmpPath, 'prompt:', finalPrompt.slice(0, 100));
       const claude = spawn('claude', args, {
         cwd: REPO_DIR,
         env: { ...process.env },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-
-      // Kill subprocess if client disconnects (user cancelled via Esc/stop button)
-      res.on('close', () => { if (!claude.killed) claude.kill('SIGTERM'); });
+      activeClause = claude;
 
       let lineBuf = '';
 
@@ -352,8 +357,8 @@ const server = createServer(async (req, res) => {
         res.end();
       });
 
-      claude.on('close', (code) => {
-        if (imgTmpPath) console.log('[IMG] close code:', code, 'lineBuf:', lineBuf.slice(0, 200));
+      claude.on('close', () => {
+        activeClause = null;
         if (imgTmpPath) try { unlinkSync(imgTmpPath); } catch {}
         if (lineBuf.trim()) processLine(lineBuf);
         res.end();
