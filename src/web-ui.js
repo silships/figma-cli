@@ -291,10 +291,8 @@ const server = createServer(async (req, res) => {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      // Kill subprocess if client disconnects (user cancelled)
-      res.on('close', () => {
-        if (!claude.killed) claude.kill('SIGTERM');
-      });
+      // Kill subprocess if client disconnects (user cancelled via Esc/stop button)
+      res.on('close', () => { if (!claude.killed) claude.kill('SIGTERM'); });
 
       let lineBuf = '';
 
