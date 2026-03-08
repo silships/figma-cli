@@ -337,16 +337,13 @@ const server = createServer(async (req, res) => {
       }
 
       claude.stdout.on('data', (chunk) => {
-        const raw = chunk.toString();
-        if (imgTmpPath) console.log('[IMG stdout]', raw.slice(0, 300));
-        lineBuf += raw;
+        lineBuf += chunk.toString();
         const lines = lineBuf.split('\n');
         lineBuf = lines.pop();
         for (const line of lines) processLine(line);
       });
       claude.stderr.on('data', (chunk) => {
         const text = chunk.toString().trim();
-        if (imgTmpPath) console.log('[IMG stderr]', text.slice(0, 300));
         if (text && !text.startsWith('Loaded') && !text.startsWith('API')) {
           sse({ t: 'text', v: text + '\n' });
         }
