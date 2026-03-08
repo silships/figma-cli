@@ -289,77 +289,105 @@ const server = createServer(async (req, res) => {
         finalPrompt = `Read the image file at ${imgTmpPath}\n\n${prompt || 'Describe what you see in this image.'}`;
       }
 
-      const args = ['-p', finalPrompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
-      if (sessionId) args.push('--resume', sessionId);
+      let currentSessionId = sessionId;
+      let retried = false;
 
-      const claude = spawn('claude', args, {
-        cwd: REPO_DIR,
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      activeClause = claude;
+      function launchClaude(withSession) {
+        const args = ['-p', finalPrompt, '--output-format', 'stream-json', '--verbose', '--dangerously-skip-permissions'];
+        if (withSession) args.push('--resume', withSession);
 
-      let lineBuf = '';
+        const claude = spawn('claude', args, {
+          cwd: REPO_DIR,
+          env: { ...process.env },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        activeClause = claude;
 
-      function processLine(line) {
-        line = line.trim();
-        if (!line) return;
-        let evt;
-        try { evt = JSON.parse(line); } catch { return; }
+        let lineBuf = '';
 
-        // Session ID (for multi-turn --resume)
-        if (evt.session_id && !sessionId) {
-          sessionId = evt.session_id;
-          sse({ t: 'sid', v: evt.session_id });
-        }
-        if (evt.type === 'result' && evt.session_id) {
-          sse({ t: 'sid', v: evt.session_id });
-        }
+        function processLine(line) {
+          line = line.trim();
+          if (!line) return;
+          let evt;
+          try { evt = JSON.parse(line); } catch { return; }
 
-        // Assistant text or tool use
-        if (evt.type === 'assistant') {
-          for (const block of evt.message?.content || []) {
-            if (block.type === 'text' && block.text) {
-              sse({ t: 'text', v: block.text });
+          // Session ID (for multi-turn --resume)
+          if (evt.session_id && !currentSessionId) {
+            currentSessionId = evt.session_id;
+            sse({ t: 'sid', v: evt.session_id });
+          }
+          if (evt.type === 'result' && evt.session_id) {
+            sse({ t: 'sid', v: evt.session_id });
+          }
+
+          // Assistant text or tool use
+          if (evt.type === 'assistant') {
+            for (const block of evt.message?.content || []) {
+              if (block.type === 'text' && block.text) {
+                sse({ t: 'text', v: block.text });
+              }
+              if (block.type === 'tool_use') {
+                sse({ t: 'tool', name: block.name, input: block.input });
+              }
             }
-            if (block.type === 'tool_use') {
-              sse({ t: 'tool', name: block.name, input: block.input });
-            }
+          }
+
+          // Tool result
+          if (evt.type === 'tool_result') {
+            const content = Array.isArray(evt.content) ? evt.content : [];
+            const text = content.map(c => c.text || '').join('').trim();
+            sse({ t: 'result', v: text.slice(0, 300) || 'done', err: !!evt.is_error });
           }
         }
 
-        // Tool result
-        if (evt.type === 'tool_result') {
-          const content = Array.isArray(evt.content) ? evt.content : [];
-          const text = content.map(c => c.text || '').join('').trim();
-          sse({ t: 'result', v: text.slice(0, 300) || 'done', err: !!evt.is_error });
-        }
+        claude.stdout.on('data', (chunk) => {
+          lineBuf += chunk.toString();
+          const lines = lineBuf.split('\n');
+          lineBuf = lines.pop();
+          for (const line of lines) processLine(line);
+        });
+
+        claude.stderr.on('data', (chunk) => {
+          const text = chunk.toString().trim();
+          if (!text || text.startsWith('Loaded')) return;
+          // Duplicate tool_use IDs = corrupt session — retry without --resume
+          if (text.includes('tool_use') && text.includes('unique') && withSession && !retried) {
+            retried = true;
+            currentSessionId = null;
+            sse({ t: 'sid', v: null }); // tell client session is gone
+            claude.kill('SIGTERM');
+            launchClaude(null);
+            return;
+          }
+          if (text.startsWith('API Error:')) {
+            sse({ t: 'err', v: text });
+          } else {
+            sse({ t: 'text', v: text + '\n' });
+          }
+        });
+
+        claude.on('error', (err) => {
+          sse({ t: 'err', v: 'Failed to run claude: ' + err.message });
+          res.end();
+        });
+
+        claude.on('close', () => {
+          if (claude === activeClause) activeClause = null;
+          if (retried && !withSession) {
+            // This is the retry process closing — we're done
+            if (imgTmpPath) try { unlinkSync(imgTmpPath); } catch {}
+            if (lineBuf.trim()) processLine(lineBuf);
+            res.end();
+          } else if (!retried) {
+            if (imgTmpPath) try { unlinkSync(imgTmpPath); } catch {}
+            if (lineBuf.trim()) processLine(lineBuf);
+            res.end();
+          }
+          // If retried && withSession: original process killed, retry is running — don't end
+        });
       }
 
-      claude.stdout.on('data', (chunk) => {
-        lineBuf += chunk.toString();
-        const lines = lineBuf.split('\n');
-        lineBuf = lines.pop();
-        for (const line of lines) processLine(line);
-      });
-      claude.stderr.on('data', (chunk) => {
-        const text = chunk.toString().trim();
-        if (text && !text.startsWith('Loaded') && !text.startsWith('API')) {
-          sse({ t: 'text', v: text + '\n' });
-        }
-      });
-
-      claude.on('error', (err) => {
-        sse({ t: 'err', v: 'Failed to run claude: ' + err.message });
-        res.end();
-      });
-
-      claude.on('close', () => {
-        activeClause = null;
-        if (imgTmpPath) try { unlinkSync(imgTmpPath); } catch {}
-        if (lineBuf.trim()) processLine(lineBuf);
-        res.end();
-      });
+      launchClaude(currentSessionId);
     });
     return;
   }

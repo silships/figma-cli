@@ -347,7 +347,7 @@ async function sendMessage(text) {
         if (evt.t === 'text')   bub.addText(evt.v);
         if (evt.t === 'tool')   bub.addTool(evt.name, summariseInput(evt.input));
         if (evt.t === 'result') bub.addToolResult(evt.v, evt.err);
-        if (evt.t === 'sid')    { sessionId = evt.v; }
+        if (evt.t === 'sid')    { sessionId = evt.v; } // null clears the session
         if (evt.t === 'err')    bub.addText('\n[Error] ' + evt.v);
       }
     }

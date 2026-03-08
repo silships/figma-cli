@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "WebFetch(domain:developer.chrome.com)"
+      "WebFetch(domain:developer.chrome.com)",
+      "Bash(grep -E \"\\\\.\\(jsx|tsx|js|ts\\)$\")"
     ]
   }
 }
