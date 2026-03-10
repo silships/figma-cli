@@ -835,9 +835,9 @@ export class FigmaClient {
           const color = item.color || '#000000';
           checkVarUsage(color);
         } else if (item._type === 'frame') {
-          const fBg = item.bg || item.fill || '#ffffff';
+          const fBg = item.bg || item.fill || null;
           const fStroke = item.stroke || null;
-          checkVarUsage(fBg);
+          if (fBg) checkVarUsage(fBg);
           if (fStroke) checkVarUsage(fStroke);
           if (item._children) collectFontsAndVars(item._children);
         } else if (item._type === 'rect' || item._type === 'image' || item._type === 'icon') {
@@ -876,7 +876,7 @@ export class FigmaClient {
         } else if (item._type === 'frame') {
           // Nested frame (button, etc.)
           const fName = item.name || 'Nested Frame';
-          const fBg = item.bg || item.fill || '#ffffff';
+          const fBg = item.bg || item.fill || null;
           const fStroke = item.stroke || null;
           const fRounded = item.rounded || item.radius || 0;
           const fFlex = item.flex || 'row';
@@ -914,7 +914,7 @@ export class FigmaClient {
           const fJustifyVal = alignMap[fJustify] || 'CENTER';
 
           const nestedChildren = item._children ? generateChildCode(item._children, `el${idx}`, fFlex) : '';
-          const frameFillCode = this.generateFillCode(fBg, `el${idx}`);
+          const frameFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
           const frameStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`) : { code: '' };
 
           // Determine sizing: FILL, FIXED, or HUG for each axis
