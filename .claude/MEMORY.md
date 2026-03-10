@@ -36,6 +36,13 @@
 - `frameOpenRegex` must skip self-closing (`match[0].endsWith('/')`)
 - `extractContent` uses non-greedy `[^>]*?` to avoid eating `/` in `/>`
 
+### Icons (Lucide via Iconify)
+- `<Icon name="lucide:icon-name" size={16} color="var:foreground" />`
+- SVGs pre-fetched on Node.js side from Iconify API, embedded in generated Figma code
+- Uses `figma.createNodeFromSvg()` for real SVG rendering (not placeholder rectangles)
+- Supports `var:` color binding (colorizes all fills/strokes in SVG tree)
+- 11 icons used in shadcn components: check, chevron-left/right/down/up, x, plus, bold, ellipsis, info, alert-circle
+
 ## Two Code Paths
 1. **render-batch** (~line 374): No var: support, uses `primaryAxisSizingMode`/`counterAxisSizingMode`
 2. **single render with var:** (~line 783): Full var: support, uses `layoutSizingHorizontal`/`layoutSizingVertical` for children

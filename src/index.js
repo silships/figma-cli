@@ -14,6 +14,7 @@ import { createServer } from 'http';
 import { FigJamClient } from './figjam-client.js';
 import { FigmaClient } from './figma-client.js';
 import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort, getFigmaBinaryPath } from './figma-patch.js';
+import { listComponents, getComponent, getAllComponents, VISUAL_COMPONENTS } from './shadcn.js';
 
 // Daemon configuration
 const DAEMON_PORT = 3456;
@@ -5000,10 +5001,10 @@ program
       // Check if JSX uses features that require our own renderer:
       // - var:name syntax for variable binding
       // - <Slot> elements for component slots
-      if (jsx.includes('var:') || jsx.includes('<Slot')) {
+      if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon')) {
         const { FigmaClient } = await import('./figma-client.js');
         const client = new FigmaClient();
-        const code = client.parseJSX(jsx);
+        const code = await client.parseJSX(jsx);
         const result = await daemonExec('eval', { code });
         if (result && result.id) {
           console.log(chalk.green('✓ Rendered: ' + result.id));
@@ -7338,6 +7339,80 @@ program
 
     } catch (error) {
       spinner.fail('Failed: ' + error.message);
+    }
+  });
+
+// ─── shadcn/ui Component Package ───────────────────────────────────
+const shadcn = program
+  .command('shadcn')
+  .description('Generate shadcn/ui components in Figma (requires: tokens preset shadcn)');
+
+shadcn
+  .command('list')
+  .description('List all available shadcn/ui components')
+  .action(() => {
+    const { available, interactive } = listComponents();
+    console.log(chalk.bold('\n  Available components:\n'));
+    available.forEach(name => {
+      const variants = getComponent(name);
+      console.log(`  ${chalk.green('●')} ${chalk.white(name)} ${chalk.gray(`(${variants.length} variant${variants.length > 1 ? 's' : ''})`)}`);
+    });
+    console.log(chalk.bold('\n  Interactive only (not generated):\n'));
+    console.log(`  ${chalk.gray(interactive.join(', '))}`);
+    console.log();
+  });
+
+shadcn
+  .command('add [names...]')
+  .description('Add shadcn/ui component(s) to Figma canvas')
+  .option('--all', 'Add all components')
+  .action(async (names, options) => {
+    checkConnection();
+
+    let items;
+    if (options.all) {
+      items = getAllComponents();
+    } else if (names && names.length > 0) {
+      items = [];
+      for (const name of names) {
+        const comp = getComponent(name);
+        if (!comp) {
+          console.log(chalk.red(`  ✗ Unknown component: ${name}`));
+          console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
+          return;
+        }
+        items.push(...comp);
+      }
+    } else {
+      console.log(chalk.yellow('  Specify component names or use --all'));
+      console.log(chalk.gray(`  Example: node src/index.js shadcn add button badge card`));
+      console.log(chalk.gray(`  Available: ${VISUAL_COMPONENTS.join(', ')}`));
+      return;
+    }
+
+    const spinner = ora(`Creating ${items.length} shadcn/ui component(s)...`).start();
+    let created = 0;
+    let failed = 0;
+
+    for (const item of items) {
+      try {
+        const result = await fastRender(item.jsx);
+        if (result && result.id) {
+          created++;
+          spinner.text = `Created ${created}/${items.length}: ${item.name}`;
+        } else {
+          failed++;
+        }
+      } catch (err) {
+        failed++;
+        spinner.text = `Failed: ${item.name} (${err.message})`;
+      }
+    }
+
+    if (failed === 0) {
+      spinner.succeed(`Created ${created} shadcn/ui component(s)`);
+    } else {
+      spinner.warn(`Created ${created}, failed ${failed}`);
     }
   });
 

@@ -279,8 +279,8 @@ export class FigmaClient {
    * Render JSX-like syntax to Figma
    */
   async render(jsx) {
-    // Parse JSX and generate Figma code
-    const code = this.parseJSX(jsx);
+    // Parse JSX and generate Figma code (async for icon fetching)
+    const code = await this.parseJSX(jsx);
     return await this.eval(code);
   }
 
@@ -385,7 +385,7 @@ export class FigmaClient {
       const p = props.p || props.padding || 0;
       const px = props.px || p;
       const py = props.py || p;
-      const align = props.align || 'MIN';
+      const align = props.items || props.align || 'MIN';
       const justify = props.justify || 'MIN';
       const wrap = props.wrap === true || props.wrap === 'true';
       const wrapGap = Number(props.wrapGap || props.counterAxisSpacing || 0);
@@ -441,6 +441,10 @@ export class FigmaClient {
             const fP = item.p !== undefined ? item.p : 0;
             const fPx = item.px !== undefined ? item.px : fP;
             const fPy = item.py !== undefined ? item.py : fP;
+            const fPt = item.pt !== undefined ? Number(item.pt) : Number(fPy);
+            const fPr = item.pr !== undefined ? Number(item.pr) : Number(fPx);
+            const fPb = item.pb !== undefined ? Number(item.pb) : Number(fPy);
+            const fPl = item.pl !== undefined ? Number(item.pl) : Number(fPx);
             const fGrow = item.grow || 0;
             const fJustify = item.justify || 'center';
             const fItems = item.items || 'center';
@@ -461,8 +465,10 @@ export class FigmaClient {
           ${fFillCode.code}
           ${fStrokeCode.code}
           el${idx}.itemSpacing = ${fGap};
-          el${idx}.paddingTop = el${idx}.paddingBottom = ${fPy};
-          el${idx}.paddingLeft = el${idx}.paddingRight = ${fPx};
+          el${idx}.paddingTop = ${fPt};
+          el${idx}.paddingBottom = ${fPb};
+          el${idx}.paddingLeft = ${fPl};
+          el${idx}.paddingRight = ${fPr};
           el${idx}.primaryAxisAlignItems = '${fJustifyVal}';
           el${idx}.counterAxisAlignItems = '${fItemsVal}';
           ${parentVar}.appendChild(el${idx});
@@ -531,7 +537,7 @@ export class FigmaClient {
   /**
    * Parse JSX-like syntax to Figma Plugin API code
    */
-  parseJSX(jsx) {
+  async parseJSX(jsx) {
     // Find opening Frame tag
     const openMatch = jsx.match(/<Frame\s+([^>]*)>/);
     if (!openMatch) {
@@ -558,8 +564,11 @@ export class FigmaClient {
       console.warn('[render] Supported elements: <Frame>, <Text>, <Rectangle>, <Rect>, <Image>, <Icon>');
     }
 
+    // Pre-fetch any icon SVGs before code generation
+    const iconSvgMap = await this.prefetchIconSvgs(childElements);
+
     // Generate code
-    return this.generateCode(props, childElements);
+    return this.generateCode(props, childElements, iconSvgMap);
   }
 
   /**
@@ -595,6 +604,48 @@ export class FigmaClient {
     }
 
     return str;
+  }
+
+  /**
+   * Collect all icon names from parsed children tree
+   */
+  collectIconNames(items) {
+    const names = new Set();
+    for (const item of items) {
+      if (item._type === 'icon' && item.name && item.name.includes(':')) {
+        names.add(item.name);
+      }
+      if (item._children) {
+        for (const n of this.collectIconNames(item._children)) {
+          names.add(n);
+        }
+      }
+    }
+    return names;
+  }
+
+  /**
+   * Pre-fetch SVGs for all icons in the tree from Iconify API
+   * Returns map: { "lucide:chevron-left": "<svg...>" }
+   */
+  async prefetchIconSvgs(children) {
+    const iconNames = this.collectIconNames(children);
+    if (iconNames.size === 0) return {};
+
+    const svgMap = {};
+    const fetches = [...iconNames].map(async (iconName) => {
+      try {
+        const [prefix, name] = iconName.split(':');
+        const response = await fetch(`https://api.iconify.design/${prefix}/${name}.svg?width=24&height=24`);
+        if (response.ok) {
+          svgMap[iconName] = await response.text();
+        }
+      } catch (e) {
+        // Silently fall back to placeholder
+      }
+    });
+    await Promise.all(fetches);
+    return svgMap;
   }
 
   parseProps(propsStr) {
@@ -780,7 +831,7 @@ export class FigmaClient {
     return children;
   }
 
-  generateCode(props, children) {
+  generateCode(props, children, iconSvgMap = {}) {
     const name = props.name || 'Frame';
     const rawWidth = props.w || props.width;
     const rawHeight = props.h || props.height;
@@ -793,19 +844,21 @@ export class FigmaClient {
     const height = fillHeight ? 100 : (rawHeight || 200);
     const bg = props.bg || props.fill || '#ffffff';
     const stroke = props.stroke || null;
+    const strokeWidth = props.strokeWidth || 1;
+    const strokeAlignProp = props.strokeAlign || null;
     const rounded = props.rounded || props.radius || 0;
     const flex = props.flex || 'col';
     const gap = props.gap || 0;
     const p = props.p || props.padding || 0;
     const px = props.px || p;
     const py = props.py || p;
-    const align = props.align || 'MIN';
+    const align = props.items || props.align || 'MIN';
     const justify = props.justify || 'MIN';
     const useSmartPos = props.x === undefined;
     const explicitX = props.x || 0;
     const y = props.y || 0;
-    // New: clip defaults to false (don't clip auto-layout overflow)
-    const clip = props.clip === 'true' || props.clip === true;
+    // New: clip defaults to false (don't clip auto-layout overflow). overflow="hidden" also sets clip.
+    const clip = props.clip === 'true' || props.clip === true || props.overflow === 'hidden';
     // New: hug for auto-sizing (hug="both" | "w" | "h" | "width" | "height")
     const hug = props.hug || '';
     const hugWidth = hug === 'both' || hug === 'w' || hug === 'width';
@@ -878,6 +931,8 @@ export class FigmaClient {
           const fName = item.name || 'Nested Frame';
           const fBg = item.bg || item.fill || null;
           const fStroke = item.stroke || null;
+          const fStrokeWidth = item.strokeWidth || 1;
+          const fStrokeAlign = item.strokeAlign || null;
           const fRounded = item.rounded || item.radius || 0;
           const fFlex = item.flex || 'row';
           const fGap = item.gap || 0;
@@ -885,10 +940,15 @@ export class FigmaClient {
           const fP = item.p !== undefined ? item.p : (item.padding !== undefined ? item.padding : null);
           const fPx = item.px !== undefined ? item.px : (fP !== null ? fP : 0);
           const fPy = item.py !== undefined ? item.py : (fP !== null ? fP : 0);
+          // Individual padding overrides (pt, pr, pb, pl)
+          const fPt = item.pt !== undefined ? Number(item.pt) : Number(fPy);
+          const fPr = item.pr !== undefined ? Number(item.pr) : Number(fPx);
+          const fPb = item.pb !== undefined ? Number(item.pb) : Number(fPy);
+          const fPl = item.pl !== undefined ? Number(item.pl) : Number(fPx);
           const fAlign = item.align || 'center';
           const fJustify = item.justify || 'center';
-          // Clip defaults to false for nested frames
-          const fClip = item.clip === 'true' || item.clip === true;
+          // Clip defaults to false for nested frames (overflow="hidden" also sets clip)
+          const fClip = item.clip === 'true' || item.clip === true || item.overflow === 'hidden';
 
           // NEW: wrap, wrapGap, grow, position props
           const fWrap = item.wrap === true || item.wrap === 'true';
@@ -915,7 +975,7 @@ export class FigmaClient {
 
           const nestedChildren = item._children ? generateChildCode(item._children, `el${idx}`, fFlex) : '';
           const frameFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
-          const frameStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`) : { code: '' };
+          const frameStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`, fStrokeWidth, fStrokeAlign) : { code: '' };
 
           // Determine sizing: FILL, FIXED, or HUG for each axis
           const wantFillH = fillWidth || (fGrow !== null && parentFlex === 'row');
@@ -931,10 +991,10 @@ export class FigmaClient {
         ${fWrap && fFlex === 'row' ? `el${idx}.layoutWrap = 'WRAP';` : ''}
         ${hasWidth || hasHeight ? `el${idx}.resize(${hasWidth ? fWidth : 100}, ${hasHeight ? fHeight : 100});` : ''}
         el${idx}.itemSpacing = ${fGap};
-        el${idx}.paddingTop = ${fPy};
-        el${idx}.paddingBottom = ${fPy};
-        el${idx}.paddingLeft = ${fPx};
-        el${idx}.paddingRight = ${fPx};
+        el${idx}.paddingTop = ${fPt};
+        el${idx}.paddingBottom = ${fPb};
+        el${idx}.paddingLeft = ${fPl};
+        el${idx}.paddingRight = ${fPr};
         el${idx}.cornerRadius = ${fRounded};
         ${frameFillCode.code}
         ${frameStrokeCode.code}
@@ -980,19 +1040,55 @@ export class FigmaClient {
         ${imgFillCode.code}
         ${parentVar}.appendChild(el${idx});`;
         } else if (item._type === 'icon') {
-          // Icon placeholder (small square)
           const icSize = item.size || item.s || 24;
           const icBg = item.color || item.c || '#71717a';
           const icName = item.name || 'Icon';
-          const iconFillCode = this.generateFillCode(icBg, `el${idx}`);
+          const svgData = iconSvgMap[icName];
 
-          return `
+          if (svgData) {
+            // Real SVG icon from Iconify
+            const colorCode = icBg.startsWith('var:') ? '' : (() => {
+              const rgb = this.hexToRgb(icBg);
+              return rgb ? `
+            function colorize${idx}(n) {
+              if (n.fills && n.fills.length > 0) n.fills = [{type:'SOLID',color:{r:${rgb.r},g:${rgb.g},b:${rgb.b}}}];
+              if (n.strokes && n.strokes.length > 0) n.strokes = [{type:'SOLID',color:{r:${rgb.r},g:${rgb.g},b:${rgb.b}}}];
+              if (n.children) n.children.forEach(colorize${idx});
+            }
+            colorize${idx}(el${idx});` : '';
+            })();
+
+            // Variable color binding for icons
+            const varColorCode = icBg.startsWith('var:') ? (() => {
+              const varName = icBg.slice(4);
+              return `
+            if (vars && vars[${JSON.stringify(varName)}]) {
+              function colorizeVar${idx}(n) {
+                if (n.fills && n.fills.length > 0) n.fills = [boundFill(vars[${JSON.stringify(varName)}])];
+                if (n.strokes && n.strokes.length > 0) n.strokes = [figma.variables.setBoundVariableForPaint({type:'SOLID',color:{r:0.5,g:0.5,b:0.5}},'color',vars[${JSON.stringify(varName)}])];
+                if (n.children) n.children.forEach(colorizeVar${idx});
+              }
+              colorizeVar${idx}(el${idx});
+            }`;
+            })() : '';
+
+            return `
+        const el${idx} = figma.createNodeFromSvg(${JSON.stringify(svgData)});
+        el${idx}.name = ${JSON.stringify(icName)};
+        el${idx}.resize(${icSize}, ${icSize});
+        ${colorCode}${varColorCode}
+        ${parentVar}.appendChild(el${idx});`;
+          } else {
+            // Fallback: placeholder rectangle
+            const iconFillCode = this.generateFillCode(icBg, `el${idx}`);
+            return `
         const el${idx} = figma.createRectangle();
         el${idx}.name = ${JSON.stringify(icName)};
         el${idx}.resize(${icSize}, ${icSize});
         el${idx}.cornerRadius = ${Math.round(icSize / 4)};
         ${iconFillCode.code}
         ${parentVar}.appendChild(el${idx});`;
+          }
         } else if (item._type === 'instance') {
           // Component instance
           const compId = item.component || item.id;
@@ -1084,7 +1180,7 @@ export class FigmaClient {
 
     // Generate fill/stroke code for root frame
     const rootFillCode = this.generateFillCode(bg, 'frame');
-    const rootStrokeCode = stroke ? this.generateStrokeCode(stroke, 'frame') : { code: '', usesVars: false };
+    const rootStrokeCode = stroke ? this.generateStrokeCode(stroke, 'frame', strokeWidth, strokeAlignProp) : { code: '', usesVars: false };
 
     // Variable loading code with caching (only if any vars used)
     const varLoadCode = usesVars ? `
@@ -1169,6 +1265,21 @@ export class FigmaClient {
     `;
   }
 
+  hexToRgb(hex) {
+    if (!hex || !hex.startsWith('#')) return null;
+    let r, g, b;
+    if (hex.length === 4) {
+      r = parseInt(hex[1] + hex[1], 16) / 255;
+      g = parseInt(hex[2] + hex[2], 16) / 255;
+      b = parseInt(hex[3] + hex[3], 16) / 255;
+    } else {
+      r = parseInt(hex.slice(1, 3), 16) / 255;
+      g = parseInt(hex.slice(3, 5), 16) / 255;
+      b = parseInt(hex.slice(5, 7), 16) / 255;
+    }
+    return { r, g, b };
+  }
+
   hexToRgbCode(hex) {
     // Support both #fff and #ffffff formats
     let r, g, b;
@@ -1222,16 +1333,17 @@ export class FigmaClient {
   /**
    * Generate stroke code - either hex color or bound variable
    */
-  generateStrokeCode(value, elementVar) {
+  generateStrokeCode(value, elementVar, strokeWidth = 1, strokeAlign = null) {
+    const alignCode = strokeAlign ? ` ${elementVar}.strokeAlign = '${strokeAlign.toUpperCase()}';` : '';
     if (this.isVarRef(value)) {
       const varName = this.getVarName(value);
       return {
-        code: `${elementVar}.strokes = [boundFill(vars['${varName}'])]; ${elementVar}.strokeWeight = 1;`,
+        code: `${elementVar}.strokes = [boundFill(vars['${varName}'])]; ${elementVar}.strokeWeight = ${strokeWidth};${alignCode}`,
         usesVars: true
       };
     } else {
       return {
-        code: `${elementVar}.strokes = [{type:'SOLID',color:${this.hexToRgbCode(value)}}]; ${elementVar}.strokeWeight = 1;`,
+        code: `${elementVar}.strokes = [{type:'SOLID',color:${this.hexToRgbCode(value)}}]; ${elementVar}.strokeWeight = ${strokeWidth};${alignCode}`,
         usesVars: false
       };
     }

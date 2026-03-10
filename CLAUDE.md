@@ -414,6 +414,12 @@ rotate={45}             // rotation degrees
 // Text
 <Text size={18} weight="bold" color="#000" font="Inter">Hello</Text>
 <Text color="var:foreground">Text with variable color</Text>
+
+// Icons (Lucide via Iconify API - real SVG nodes, not placeholders)
+<Icon name="lucide:chevron-left" size={16} color="#fff" />
+<Icon name="lucide:check" size={14} color="var:primary-foreground" />
+// Any Lucide icon: lucide:plus, lucide:x, lucide:search, lucide:settings, etc.
+// Full list: https://lucide.dev/icons
 ```
 
 ### Fast Variable Binding (var: syntax)
@@ -640,12 +646,16 @@ text.layoutAlign = "STRETCH";              // Fill available width
 text.layoutGrow = 1;                       // Grow to fill
 ```
 
-**4. No emojis - use shapes as icons:**
+**4. No emojis - use real Lucide icons or shapes:**
 ```jsx
 // BAD: Emojis render inconsistently
 <Text>🏠</Text>
 
-// GOOD: Use shapes as icon placeholders
+// BEST: Use real Lucide icons (fetched as SVG from Iconify API)
+<Icon name="lucide:home" size={20} color="#fff" />
+<Icon name="lucide:settings" size={20} color="var:foreground" />
+
+// OK: Use shapes as fallback icon placeholders
 <Frame w={20} h={20} rounded={4} stroke="#fff" strokeWidth={2} />  // square icon
 <Frame w={20} h={20} rounded={10} stroke="#fff" strokeWidth={2} /> // circle icon
 ```

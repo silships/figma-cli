@@ -416,7 +416,7 @@ async function handleRequest(req, res) {
               // Parse JSX to code, then execute via unified eval (works with both CDP and Plugin)
               const ClientClass = await getFigmaClient();
               const parser = new ClientClass();
-              const renderCode = parser.parseJSX(jsx);
+              const renderCode = await parser.parseJSX(jsx);
               result = await execWithTimeout(() => executeEval(renderCode));
               break;
             }
