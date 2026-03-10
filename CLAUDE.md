@@ -10,6 +10,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "add shadcn colors" | `node src/index.js tokens preset shadcn` |
 | "add tailwind colors" | `node src/index.js tokens tailwind` |
 | "show colors on canvas" | `node src/index.js var visualize` |
+| "create dashboard" | `node src/index.js blocks create dashboard-01` |
+| "list blocks" | `node src/index.js blocks list` |
 | "create cards/buttons" | `render-batch` + `node to-component` |
 | "create a rectangle/frame" | `node src/index.js render '<Frame>...'` |
 | "convert to component" | `node src/index.js node to-component "ID"` |
@@ -45,6 +47,34 @@ Returns JSON with base64 image (max 2000px, auto-scaled to stay under API limits
 - Any visual creation
 
 This is for internal AI checks, not shown to users.
+
+---
+
+## Blocks (Pre-built UI Layouts)
+
+**ALWAYS use `blocks create` for dashboards and page layouts.** Never build them manually with render/eval.
+
+```bash
+node src/index.js blocks list                    # Show available blocks
+node src/index.js blocks create dashboard-01     # Create dashboard in Figma
+```
+
+**dashboard-01**: Full analytics dashboard with:
+- Sidebar with real Lucide icons (layout-dashboard, refresh-cw, bar-chart-3, folder, users, etc.)
+- Stats cards (Revenue, Customers, Accounts, Growth)
+- Area chart with two datasets
+- Data table with pagination
+- All colors bound to shadcn variables (supports Light/Dark mode)
+
+**Dark mode copy**: After creating, clone and switch mode:
+```javascript
+// Via eval:
+var clone = dashboard.clone();
+clone.name = 'Dashboard (Dark)';
+clone.setExplicitVariableModeForCollection(semanticCollection, darkModeId);
+```
+
+Block source files: `src/blocks/`
 
 ---
 
