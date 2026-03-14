@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# fig-start — Launch Figma CLI + Claude Code
-# Connects to Figma, lets you pick an open file, then launches Claude Code.
+# fig-start — Launch Figma CLI + Gemini CLI
+# Connects to Figma, lets you pick an open file, then launches Gemini CLI.
 #
 # Usage:
 #   fig-start          → Yolo Mode (default) with file selector
@@ -109,6 +109,124 @@ select_file() {
     done
 }
 
+# ── AI CLI selector ──
+
+select_ai() {
+    local options=("Gemini CLI" "Claude Code" "Qwen CLI" "DeepSeek CLI" "Copilot CLI" "Auto (detect from context)")
+    local count=${#options[@]}
+    local selected=0
+
+    tput civis > /dev/tty 2>/dev/null
+
+    draw_ai_menu() {
+        if [ "$1" = "redraw" ]; then
+            printf "\033[%dA" "$((count + 2))" > /dev/tty
+        fi
+        printf "${BOLD}Select AI assistant (↑↓ arrows, Enter to confirm):${NC}\n" > /dev/tty
+        printf "\n" > /dev/tty
+        for i in "${!options[@]}"; do
+            if [ "$i" -eq "$selected" ]; then
+                printf "  ${GREEN}▸ %s${NC}\n" "${options[$i]}" > /dev/tty
+            else
+                printf "    %s\n" "${options[$i]}" > /dev/tty
+            fi
+        done
+    }
+
+    draw_ai_menu "first"
+
+    while true; do
+        IFS= read -rsn1 key < /dev/tty
+        case "$key" in
+            $'\x1b')
+                read -rsn2 seq < /dev/tty
+                case "$seq" in
+                    '[A') ((selected--)); [ "$selected" -lt 0 ] && selected=$((count - 1)) ;;
+                    '[B') ((selected++)); [ "$selected" -ge "$count" ] && selected=0 ;;
+                esac
+                ;;
+            ''|$'\n'|$'\r')
+                tput cnorm > /dev/tty 2>/dev/null
+                printf "\n" > /dev/tty
+                printf '%s' "${options[$selected]}"
+                return
+                ;;
+        esac
+        draw_ai_menu "redraw"
+    done
+}
+
+detect_auto_cli() {
+    local gemini_ok=false
+    local claude_ok=false
+    local qwen_ok=false
+    command -v gemini &>/dev/null && gemini_ok=true
+    command -v claude &>/dev/null && claude_ok=true
+    command -v qwen &>/dev/null && qwen_ok=true
+    local deepseek_ok=false
+    command -v deepseek &>/dev/null && deepseek_ok=true
+    local copilot_ok=false
+    command -v copilot &>/dev/null && copilot_ok=true
+
+    # Context clues: CLAUDE.md present → prefer Claude
+    if [ -f "$REPO_PATH/CLAUDE.md" ] && [ "$claude_ok" = true ]; then
+        echo "claude"
+    elif [ "$gemini_ok" = true ]; then
+        echo "gemini"
+    elif [ "$claude_ok" = true ]; then
+        echo "claude"
+    elif [ "$qwen_ok" = true ]; then
+        echo "qwen"
+    elif [ "$deepseek_ok" = true ]; then
+        echo "deepseek"
+    elif [ "$copilot_ok" = true ]; then
+        echo "copilot"
+    else
+        echo ""
+    fi
+}
+
+launch_ai() {
+    local choice="$1"
+    if [ "$STAY_HERE" = false ]; then
+        cd "$REPO_PATH" || exit 1
+    fi
+    case "$choice" in
+        "Gemini CLI")
+            echo -e "  ${GREEN}Launching Gemini CLI...${NC}"; echo ""
+            exec gemini
+            ;;
+        "Claude Code")
+            echo -e "  ${GREEN}Launching Claude Code...${NC}"; echo ""
+            exec claude
+            ;;
+        "Qwen CLI")
+            echo -e "  ${GREEN}Launching Qwen CLI...${NC}"; echo ""
+            exec qwen
+            ;;
+        "DeepSeek CLI")
+            echo -e "  ${GREEN}Launching DeepSeek CLI...${NC}"; echo ""
+            exec deepseek
+            ;;
+        "Copilot CLI")
+            echo -e "  ${GREEN}Launching Copilot CLI...${NC}"; echo ""
+            exec copilot
+            ;;
+        "Auto"*)
+            local cli
+            cli=$(detect_auto_cli)
+            case "$cli" in
+                gemini) echo -e "  ${GREEN}Launching Gemini CLI...${NC} ${DIM}(auto)${NC}"; echo ""; exec gemini ;;
+                claude) echo -e "  ${GREEN}Launching Claude Code...${NC} ${DIM}(auto)${NC}"; echo ""; exec claude ;;
+                qwen)      echo -e "  ${GREEN}Launching Qwen CLI...${NC} ${DIM}(auto)${NC}"; echo ""; exec qwen ;;
+                deepseek)  echo -e "  ${GREEN}Launching DeepSeek CLI...${NC} ${DIM}(auto)${NC}"; echo ""; exec deepseek ;;
+                copilot)   echo -e "  ${GREEN}Launching Copilot CLI...${NC} ${DIM}(auto)${NC}"; echo ""; exec copilot ;;
+                *) echo -e "  ${RED}No AI CLI found. Install gemini, claude, qwen, deepseek, or copilot.${NC}"; exit 1 ;;
+            esac
+            ;;
+    esac
+}
+
 # ── Main ──
 
 # Handle flags
@@ -188,12 +306,9 @@ if [ "$SAFE_MODE" = true ]; then
     echo ""
 
     # Skip file selector (Safe Mode only sees the active file via plugin)
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
     echo ""
-    if [ "$STAY_HERE" = false ]; then
-        cd "$REPO_PATH" || exit 1
-    fi
-    exec claude
+    AI_CHOICE=$(select_ai)
+    launch_ai "$AI_CHOICE"
 else
     # ── Yolo Mode: CDP-based connection ──
     # Check if CDP is already accessible (avoid killing/restarting Figma)
@@ -259,12 +374,9 @@ for f in files:
     if [ ${#FILE_TITLES[@]} -eq 0 ]; then
         echo -e "  ${YELLOW}No Figma files detected.${NC} Open a file in Figma first."
         echo ""
-        echo -e "  Launching Claude Code anyway..."
         echo ""
-        if [ "$STAY_HERE" = false ]; then
-            cd "$REPO_PATH" || exit 1
-        fi
-        exec claude
+        AI_CHOICE=$(select_ai)
+        launch_ai "$AI_CHOICE"
     fi
 
     SELECTED_TITLE=""
@@ -279,11 +391,9 @@ for f in files:
     echo -e "  ${GREEN}✓ File: ${BOLD}${SELECTED_TITLE}${NC}"
     echo ""
 
-    # Step 4: Launch Claude Code
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
+    # Step 4: Select and launch AI assistant
     echo ""
-    if [ "$STAY_HERE" = false ]; then
-        cd "$REPO_PATH" || exit 1
-    fi
-    exec claude
+    AI_CHOICE=$(select_ai)
+    launch_ai "$AI_CHOICE"
 fi
+@
