@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# fig-start — Launch Figma CLI + Claude Code
-# Connects to Figma, lets you pick an open file, then launches Claude Code.
+# fig-start — Launch Figma CLI + Gemini CLI
+# Connects to Figma, lets you pick an open file, then launches Gemini CLI.
 #
 # Usage:
 #   fig-start          → Yolo Mode (default) with file selector
@@ -188,12 +188,12 @@ if [ "$SAFE_MODE" = true ]; then
     echo ""
 
     # Skip file selector (Safe Mode only sees the active file via plugin)
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
+    echo -e "  ${GREEN}Launching Gemini CLI...${NC}"
     echo ""
     if [ "$STAY_HERE" = false ]; then
         cd "$REPO_PATH" || exit 1
     fi
-    exec claude
+    exec gemini
 else
     # ── Yolo Mode: CDP-based connection ──
     # Check if CDP is already accessible (avoid killing/restarting Figma)
@@ -259,12 +259,12 @@ for f in files:
     if [ ${#FILE_TITLES[@]} -eq 0 ]; then
         echo -e "  ${YELLOW}No Figma files detected.${NC} Open a file in Figma first."
         echo ""
-        echo -e "  Launching Claude Code anyway..."
+        echo -e "  Launching Gemini CLI anyway..."
         echo ""
         if [ "$STAY_HERE" = false ]; then
             cd "$REPO_PATH" || exit 1
         fi
-        exec claude
+        exec gemini
     fi
 
     SELECTED_TITLE=""
@@ -279,11 +279,11 @@ for f in files:
     echo -e "  ${GREEN}✓ File: ${BOLD}${SELECTED_TITLE}${NC}"
     echo ""
 
-    # Step 4: Launch Claude Code
-    echo -e "  ${GREEN}Launching Claude Code...${NC}"
+    # Step 4: Launch Gemini CLI
+    echo -e "  ${GREEN}Launching Gemini CLI...${NC}"
     echo ""
     if [ "$STAY_HERE" = false ]; then
         cd "$REPO_PATH" || exit 1
     fi
-    exec claude
+    exec gemini
 fi
