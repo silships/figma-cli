@@ -869,7 +869,7 @@ program.action(async () => {
 });
 
 function showQuickStart() {
-  console.log(chalk.white('  Just ask Claude:\n'));
+  console.log(chalk.white('  Just ask Gemini:\n'));
   console.log(chalk.white('    "Add shadcn colors to my project"'));
   console.log(chalk.white('    "Create a blue card with rounded corners"'));
   console.log(chalk.white('    "Show me what\'s on the canvas"'));
@@ -982,7 +982,7 @@ program
     // Done!
     console.log(chalk.green('\n  ✓ Setup complete!\n'));
 
-    console.log(chalk.white('  Just ask Claude:\n'));
+    console.log(chalk.white('  Just ask Gemini:\n'));
     console.log(chalk.white('    "Add shadcn colors to my project"'));
     console.log(chalk.white('    "Create a blue card with rounded corners"'));
     console.log(chalk.white('    "Show me what\'s on the canvas"'));

@@ -1,6 +1,6 @@
 # figma-ds-cli Command Reference
 
-Full command reference for the Figma CLI. For quick start, see CLAUDE.md.
+Full command reference for the Figma CLI. For quick start, see GEMINI.md.
 
 ## Design Tokens & Variables
 
@@ -469,4 +469,4 @@ node src/index.js render '<Frame>...</Frame>'
 node src/index.js render '<Frame>...</Frame>'
 ```
 
-Or use `eval` with native Figma API for maximum control (see "Complex Components" in CLAUDE.md).
+Or use `eval` with native Figma API for maximum control (see "Complex Components" in GEMINI.md).
