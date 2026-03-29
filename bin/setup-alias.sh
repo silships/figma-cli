@@ -20,7 +20,11 @@ fi
 # Check if alias already exists
 if grep -q "alias fig-start=" "$RC_FILE" 2>/dev/null; then
     # Update existing alias (path may have changed)
-    sed -i '' "/alias fig-start=/d" "$RC_FILE"
+    if sed --version >/dev/null 2>&1; then
+        sed -i "/alias fig-start=/d" "$RC_FILE"
+    else
+        sed -i '' "/alias fig-start=/d" "$RC_FILE"
+    fi
 fi
 
 # Add alias

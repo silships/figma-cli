@@ -19,6 +19,26 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
+start_figma() {
+    case "$(uname -s)" in
+        Darwin)
+            open -a Figma
+            ;;
+        Linux)
+            if command -v figma-linux >/dev/null 2>&1; then
+                nohup figma-linux >/dev/null 2>&1 &
+            elif command -v figma >/dev/null 2>&1; then
+                nohup figma >/dev/null 2>&1 &
+            else
+                return 1
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 # ── Config helpers ──
 
 get_daemon_token() {
@@ -168,9 +188,13 @@ fi
 echo ""
 
 # Step 1: Check if Figma is running, start if not
-if ! pgrep -x "Figma" > /dev/null 2>&1; then
+if ! pgrep -f "/figma-linux|/figma |/Figma" > /dev/null 2>&1; then
     echo -e "  ${YELLOW}Starting Figma...${NC}"
-    open -a Figma
+    if ! start_figma; then
+        echo -e "  ${YELLOW}Could not start Figma automatically.${NC}"
+        echo -e "  Start it manually, then rerun ${BOLD}fig-start${NC}."
+        exit 1
+    fi
     sleep 3
 fi
 

@@ -1110,6 +1110,9 @@ program
           console.log(chalk.cyan('  Step 5: ') + chalk.white('Reopen Terminal and try again\n'));
 
           console.log(chalk.gray('  Or use Safe Mode: ') + chalk.cyan('node src/index.js connect --safe\n'));
+        } else if (process.platform === 'linux' && err.message.includes('Snap')) {
+          console.log(chalk.yellow('\n  Snap-installed figma-linux is not supported.\n'));
+          console.log(chalk.gray('  Install the unofficial apt package instead if you want Linux support.\n'));
         } else {
           console.log(chalk.yellow('\n  Try running as administrator.\n'));
           console.log(chalk.gray('  Or use Safe Mode: ') + chalk.cyan('node src/index.js connect --safe\n'));
@@ -5174,7 +5177,10 @@ program
 
     // 7. figma-use availability
     try {
-      execSync('which figma-use 2>/dev/null || where figma-use 2>nul', { encoding: 'utf8' });
+      const figmaUseCheck = process.platform === 'win32'
+        ? 'where figma-use 2>nul'
+        : 'which figma-use 2>/dev/null';
+      execSync(figmaUseCheck, { encoding: 'utf8' });
       console.log(chalk.green('✓ figma-use installed'));
     } catch {
       console.log(chalk.yellow('○ figma-use not in PATH (some features limited)'));

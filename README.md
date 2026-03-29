@@ -145,8 +145,11 @@ This project includes a `CLAUDE.md` file that Claude reads automatically. It con
 - **Node.js 18+** — `brew install node` (or [download](https://nodejs.org/))
 - **Figma Desktop** (free account works)
 - **Claude Code** ([get it here](https://www.anthropic.com/claude-code))
-- **macOS or Windows** (macOS recommended, Windows supported)
+- **macOS or Windows**
+- **Linux:** unofficial `figma-linux` package installed via `apt` only
 - **macOS Full Disk Access** for Terminal (Yolo Mode only -- not needed for [Safe Mode](#-safe-mode--for-restricted-environments))
+
+**Linux note:** Linux support is limited to the unofficial `figma-linux` desktop package installed outside Snap. Snap installs are not supported.
 
 ---
 
@@ -157,7 +160,7 @@ git clone https://github.com/silships/figma-cli.git
 cd figma-cli
 npm install
 npm run setup-alias
-source ~/.zshrc
+source ~/.zshrc  # or ~/.bashrc
 ```
 
 That's it. Now open a **new terminal** and type:
