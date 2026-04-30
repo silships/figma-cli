@@ -86,10 +86,18 @@ export function patchFigma() {
     throw new Error('Cannot detect Figma installation path for this platform');
   }
 
+  if (process.platform === 'linux' && asarPath.startsWith('/snap/')) {
+    throw new Error(
+      'Snap-installed figma-linux is not supported. Install figma-linux outside Snap to use this tool on Linux.'
+    );
+  }
+
   // Check write access first
   if (!canPatchFigma()) {
     if (process.platform === 'darwin') {
       throw new Error('No write access to Figma. Grant Terminal "Full Disk Access" in System Settings → Privacy & Security');
+    } else if (process.platform === 'linux') {
+      throw new Error('No write access to the Figma installation. On Linux, use an apt-installed figma-linux package and run with permissions that can modify app.asar.');
     } else {
       throw new Error('No write access to Figma. Try running as administrator.');
     }

@@ -38,6 +38,23 @@ function killPortWindows(port) {
 
 export const killPort = PLATFORM === 'win32' ? killPortWindows : killPortUnix;
 
+function firstExistingPath(paths) {
+  for (const path of paths) {
+    if (path && existsSync(path)) return path;
+  }
+  return null;
+}
+
+function commandExists(cmd) {
+  try {
+    const checkCmd = PLATFORM === 'win32' ? `where ${cmd}` : `command -v ${cmd}`;
+    const resolved = execSync(checkCmd, { encoding: 'utf8', stdio: 'pipe' }).trim().split('\n')[0];
+    return resolved || null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Get PID listening on port ---
 function getPortPidUnix(port) {
   return execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' }).trim() || null;
@@ -69,6 +86,7 @@ export function startFigmaApp(figmaPath, port) {
   if (PLATFORM === 'darwin') {
     execSync(`open -a Figma --args --remote-debugging-port=${port}`, { stdio: 'pipe' });
   } else {
+    if (!figmaPath) throw new Error('Figma binary not found');
     spawn(figmaPath, [`--remote-debugging-port=${port}`], { detached: true, stdio: 'ignore' }).unref();
   }
 }
@@ -81,6 +99,8 @@ export function killFigmaApp() {
     } else if (PLATFORM === 'win32') {
       execSync('taskkill /IM Figma.exe /F 2>nul', { stdio: 'pipe' });
     } else {
+      execSync('pkill -f "/figma-linux" 2>/dev/null || true', { stdio: 'pipe' });
+      execSync('pkill -x figma-linux 2>/dev/null || true', { stdio: 'pipe' });
       execSync('pkill -x figma 2>/dev/null || true', { stdio: 'pipe' });
     }
   } catch {}
@@ -148,8 +168,35 @@ const ASAR_PATHS = {
   linux: '/opt/figma/resources/app.asar'
 };
 
+function getLinuxAsarPath() {
+  if (process.env.FIGMA_CLI_ASAR_PATH) return process.env.FIGMA_CLI_ASAR_PATH;
+
+  return firstExistingPath([
+    '/snap/figma-linux/current/resources/app.asar',
+    '/opt/figma/resources/app.asar',
+    '/opt/figma-linux/resources/app.asar',
+    '/usr/lib/figma/resources/app.asar',
+    '/usr/lib/figma-linux/resources/app.asar'
+  ]);
+}
+
+function getLinuxBinaryPath() {
+  if (process.env.FIGMA_CLI_BINARY_PATH) return process.env.FIGMA_CLI_BINARY_PATH;
+
+  return firstExistingPath([
+    '/snap/bin/figma-linux',
+    '/usr/bin/figma-linux',
+    '/usr/local/bin/figma-linux',
+    '/usr/bin/figma',
+    '/usr/local/bin/figma',
+    commandExists('figma-linux'),
+    commandExists('figma')
+  ]);
+}
+
 export function getAsarPath() {
   if (PLATFORM === 'win32') return findWindowsFigmaPath();
+  if (PLATFORM === 'linux') return getLinuxAsarPath();
   return ASAR_PATHS[PLATFORM] || null;
 }
 
@@ -160,7 +207,7 @@ export function getFigmaBinaryPath() {
     case 'win32':
       return findWindowsFigmaExe() || `${process.env.LOCALAPPDATA}\\Figma\\Figma.exe`;
     case 'linux':
-      return '/usr/bin/figma';
+      return getLinuxBinaryPath();
     default:
       return null;
   }
@@ -175,8 +222,10 @@ export function getFigmaCommand(port = 9222) {
       if (exePath) return `"${exePath}" --remote-debugging-port=${port}`;
       return `"%LOCALAPPDATA%\\Figma\\Figma.exe" --remote-debugging-port=${port}`;
     }
-    case 'linux':
-      return `figma --remote-debugging-port=${port}`;
+    case 'linux': {
+      const binaryPath = getLinuxBinaryPath();
+      return binaryPath ? `${binaryPath} --remote-debugging-port=${port}` : `figma-linux --remote-debugging-port=${port}`;
+    }
     default:
       return null;
   }
@@ -188,13 +237,24 @@ export function getFigmaVersion() {
     return execSync('defaults read /Applications/Figma.app/Contents/Info.plist CFBundleShortVersionString 2>/dev/null', { encoding: 'utf8' }).trim();
   } else if (PLATFORM === 'win32') {
     return execSync('powershell -command "(Get-Item \\"$env:LOCALAPPDATA\\Figma\\Figma.exe\\").VersionInfo.ProductVersion" 2>nul', { encoding: 'utf8' }).trim() || 'unknown';
+  } else if (PLATFORM === 'linux') {
+    const binaryPath = getLinuxBinaryPath();
+    if (!binaryPath) return 'unknown';
+    try {
+      return execSync(`${binaryPath} --version 2>/dev/null`, { encoding: 'utf8', stdio: 'pipe', timeout: 2000 }).trim() || 'unknown';
+    } catch {
+      return 'unknown';
+    }
   }
   return 'unknown';
 }
 
 export function isFigmaRunning() {
-  if (PLATFORM === 'darwin' || PLATFORM === 'linux') {
+  if (PLATFORM === 'darwin') {
     const ps = execSync('pgrep -f Figma 2>/dev/null || true', { encoding: 'utf8' });
+    return ps.trim().length > 0;
+  } else if (PLATFORM === 'linux') {
+    const ps = execSync('pgrep -f "/figma-linux|/figma " 2>/dev/null || true', { encoding: 'utf8' });
     return ps.trim().length > 0;
   } else if (PLATFORM === 'win32') {
     const ps = execSync('tasklist /FI "IMAGENAME eq Figma.exe" 2>nul', { encoding: 'utf8' });
