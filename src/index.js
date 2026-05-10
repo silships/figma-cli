@@ -13,6 +13,7 @@ import { homedir, tmpdir } from 'os';
 import { createServer } from 'http';
 import { FigJamClient } from './figjam-client.js';
 import { FigmaClient } from './figma-client.js';
+import * as apiDocs from './api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getFigmaCommand, getCdpPort, getFigmaBinaryPath } from './figma-patch.js';
 import { listComponents, getComponent, getAllComponents, VISUAL_COMPONENTS } from './shadcn.js';
 import { listBlocks, getBlock } from './blocks/index.js';
@@ -680,6 +681,15 @@ program
 
 // Default action when no command is given
 program.action(async () => {
+  // If user passed an unknown subcommand as first arg, suggest from API docs
+  const argv = process.argv.slice(2);
+  if (argv.length > 0 && !argv[0].startsWith('-')) {
+    const attempted = argv[0];
+    console.error(chalk.red(`✗ unknown command: ${attempted}\n`));
+    apiDocs.suggest(attempted);
+    process.exit(1);
+  }
+
   const config = loadConfig();
 
   // First time? Run init
@@ -8352,4 +8362,26 @@ try {
   loadPlugins(program, { daemonExec, checkConnection, getDaemonToken });
 } catch {}
 
+// === API docs (offline Figma Plugin API reference) ===
+const apiCmd = program
+  .command('api [name]')
+  .description('Look up Figma Plugin API interface or type (offline). Run `api setup` first.')
+  .action((name) => apiDocs.show(name));
+
+apiCmd
+  .command('setup')
+  .description('Download Figma Plugin API docs locally (~5 MB, one-time)')
+  .action(() => apiDocs.setup());
+
+apiCmd
+  .command('list [filter]')
+  .description('List all interfaces and types (optional substring filter)')
+  .action((filter) => apiDocs.list(filter));
+
+apiCmd
+  .command('gap')
+  .description('Show Figma Plugin API capabilities not yet exposed by figma-cli')
+  .action(() => apiDocs.gap());
+
+// (Unknown-command handling lives inside the default program.action)
 program.parse();
