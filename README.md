@@ -144,7 +144,3 @@ You design. The AI types. Figma updates.
 ## License
 
 MIT. Built by [Sil Bormüller](https://intodesignsystems.com).
-
-## Credits
-
-The `lint`, `analyze`, and parts of the legacy render path shell out to [figma-use](https://github.com/dannote/figma-use) by [dannote](https://github.com/dannote). Most of the rest is implemented natively via Figma's Plugin API in `src/figma-client.js`.
