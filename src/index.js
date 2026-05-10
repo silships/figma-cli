@@ -8440,6 +8440,118 @@ devCmd
     }
   });
 
+// ============ LAYOUT GRIDS ============
+// Manage column/row grids on frames (12-col grids, baseline grids, etc.)
+
+const gridCmd = program
+  .command('grid')
+  .description('Manage layout grids on frames (columns, rows, gutters)');
+
+gridCmd
+  .command('set <nodeId>')
+  .description('Set a column or row grid on a frame')
+  .option('-c, --columns <n>', 'Number of columns', parseInt)
+  .option('-r, --rows <n>', 'Number of rows', parseInt)
+  .option('-g, --gutter <n>', 'Gutter size in px', parseInt, 16)
+  .option('-m, --margin <n>', 'Outer margin in px', parseInt, 0)
+  .option('-a, --alignment <align>', 'Alignment: stretch|min|center|max', 'stretch')
+  .option('--color <hex>', 'Grid color (hex)', '#FF008B')
+  .option('--opacity <n>', 'Grid opacity (0-1)', parseFloat, 0.1)
+  .option('--append', 'Append to existing grids instead of replacing')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    if (!options.columns && !options.rows) {
+      console.error(chalk.red('✗'), 'Specify at least --columns or --rows');
+      process.exit(1);
+    }
+    const alignmentMap = { stretch: 'STRETCH', min: 'MIN', center: 'CENTER', max: 'MAX' };
+    const alignment = alignmentMap[options.alignment.toLowerCase()] || 'STRETCH';
+    const hex = options.color.replace('#', '');
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const colorObj = `{r:${r.toFixed(4)},g:${g.toFixed(4)},b:${b.toFixed(4)},a:${options.opacity}}`;
+
+    const grids = [];
+    if (options.columns) {
+      grids.push(`{pattern:'COLUMNS',alignment:'${alignment}',count:${options.columns},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
+    }
+    if (options.rows) {
+      grids.push(`{pattern:'ROWS',alignment:'${alignment}',count:${options.rows},gutterSize:${options.gutter},offset:${options.margin},color:${colorObj},visible:true}`);
+    }
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids (must be FRAME, COMPONENT, or COMPONENT_SET)');
+      const newGrids = [${grids.join(',')}];
+      n.layoutGrids = ${options.append ? '[...n.layoutGrids, ...newGrids]' : 'newGrids'};
+      return { id: n.id, name: n.name, count: n.layoutGrids.length };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Set grid on ${r.name} (${r.id})`);
+      console.log(chalk.gray(`  Total grids: ${r.count}`));
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+gridCmd
+  .command('list [nodeId]')
+  .description('List layout grids on a frame (or current selection)')
+  .action(async (nodeId) => {
+    await checkConnection();
+    const target = nodeId
+      ? `await figma.getNodeByIdAsync(${JSON.stringify(nodeId)})`
+      : `figma.currentPage.selection[0]`;
+    const code = `(async () => {
+      const n = ${target};
+      if (!n) throw new Error('No node found');
+      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids');
+      return { id: n.id, name: n.name, grids: n.layoutGrids };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.bold(`${r.name} (${r.id})`));
+      if (!r.grids || r.grids.length === 0) {
+        console.log(chalk.gray('  (no layout grids)'));
+        return;
+      }
+      r.grids.forEach((g, i) => {
+        if (g.pattern === 'GRID') {
+          console.log(`  ${i + 1}. GRID  size=${g.sectionSize}px`);
+        } else {
+          console.log(`  ${i + 1}. ${g.pattern}  count=${g.count}  gutter=${g.gutterSize}  offset=${g.offset}  align=${g.alignment}`);
+        }
+      });
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
+gridCmd
+  .command('clear <nodeId>')
+  .description('Remove all layout grids from a frame')
+  .action(async (nodeId) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ${nodeId}');
+      if (!('layoutGrids' in n)) throw new Error('Node does not support layout grids');
+      n.layoutGrids = [];
+      return { id: n.id, name: n.name };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓'), `Cleared grids on ${r.name} (${r.id})`);
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+  });
+
 // ============ COMPONENT PROPERTIES ============
 // Manage variant/boolean/text/instance-swap properties on Figma components.
 
