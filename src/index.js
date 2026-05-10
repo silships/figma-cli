@@ -8769,32 +8769,45 @@ const annotateCmd = program
   .description('Manage annotations (inline notes) on nodes');
 
 annotateCmd
-  .command('add <nodeId> <text>')
-  .description('Add an annotation to a node (use --markdown for rich text)')
+  .command('add')
+  .description('Add an annotation. Pass --node <id> for one, or --query <pattern> for all matches.')
+  .argument('<text>', 'Annotation text (or markdown if --markdown)')
   .option('-m, --markdown', 'Treat text as markdown')
-  .action(async (nodeId, text, options) => {
+  .option('-n, --node <id>', 'Node ID to annotate')
+  .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern> (case-insensitive)')
+  .action(async (text, options) => {
     await checkConnection();
+    if (!options.node && !options.query) {
+      console.error(chalk.red('✗'), 'Provide either --node <id> or --query <pattern>');
+      process.exit(1);
+    }
     const labelKey = options.markdown ? 'labelMarkdown' : 'label';
+    const targetSelector = options.query
+      ? `(figma.currentPage.findAll(n => 'annotations' in n && typeof n.name === 'string' && n.name.toLowerCase().includes(${JSON.stringify(options.query.toLowerCase())})))`
+      : `[await figma.getNodeByIdAsync(${JSON.stringify(options.node)})].filter(Boolean)`;
     const code = `(async () => {
-      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
-      if (!n) throw new Error('Node not found: ${nodeId}');
-      if (!('annotations' in n)) throw new Error('Node does not support annotations');
-      // Normalize existing entries — Figma rejects entries with BOTH label and labelMarkdown set
-      const existing = (n.annotations || []).map(a => {
-        const cleaned = {};
-        if (a.labelMarkdown) cleaned.labelMarkdown = a.labelMarkdown;
-        else if (a.label) cleaned.label = a.label;
-        if (a.categoryId) cleaned.categoryId = a.categoryId;
-        if (a.properties) cleaned.properties = a.properties;
-        return cleaned;
-      });
-      n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)} }];
-      return { id: n.id, name: n.name, count: n.annotations.length };
+      const nodes = ${targetSelector};
+      if (nodes.length === 0) throw new Error(${options.query ? `'No nodes matched query: ${options.query}'` : `'Node not found: ${options.node}'`});
+      const results = [];
+      for (const n of nodes) {
+        if (!('annotations' in n)) continue;
+        const existing = (n.annotations || []).map(a => {
+          const c = {};
+          if (a.labelMarkdown) c.labelMarkdown = a.labelMarkdown;
+          else if (a.label) c.label = a.label;
+          if (a.categoryId) c.categoryId = a.categoryId;
+          if (a.properties) c.properties = a.properties;
+          return c;
+        });
+        n.annotations = [...existing, { ${labelKey}: ${JSON.stringify(text)} }];
+        results.push({ id: n.id, name: n.name });
+      }
+      return results;
     })()`;
     try {
       const r = await daemonExec('eval', { code });
-      console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id})`);
-      console.log(chalk.gray(`  Total annotations: ${r.count}`));
+      console.log(chalk.green('✓'), `Annotated ${r.length} node(s):`);
+      r.forEach(n => console.log(chalk.gray(`  ${n.name} (${n.id})`)));
     } catch (e) {
       handleEvalError(e);
     }

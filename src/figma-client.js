@@ -1481,6 +1481,18 @@ export class FigmaClient {
   parseShadowString(s) {
     if (typeof s !== 'string') return null;
     let str = s.trim();
+    // Tailwind-style keyword shortcuts. Designers expect shadow="lg" to work.
+    const tailwind = {
+      sm:   '0 1px 2px rgba(0,0,0,0.05)',
+      md:   '0 4px 6px rgba(0,0,0,0.1)',
+      lg:   '0 10px 15px rgba(0,0,0,0.1)',
+      xl:   '0 20px 25px rgba(0,0,0,0.1)',
+      '2xl':'0 25px 50px rgba(0,0,0,0.25)',
+      none: null,
+    };
+    const lookup = tailwind[str.toLowerCase()];
+    if (lookup === null) return null;
+    if (lookup !== undefined) str = lookup;
     // Extract color (last hex or rgba(...))
     let color = null;
     const rgbaMatch = str.match(/rgba?\(([^)]+)\)\s*$/);
