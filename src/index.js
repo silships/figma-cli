@@ -4988,7 +4988,11 @@ program
       // Check if JSX uses features that require our own renderer:
       // - var:name syntax for variable binding
       // - <Slot> elements for component slots
-      if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon')) {
+      // - <Icon> elements
+      // - gradient/effects/blur (needs full parser, fast-path doesn't handle them)
+      if (jsx.includes('var:') || jsx.includes('<Slot') || jsx.includes('<Icon') ||
+          /-gradient\s*\(/i.test(jsx) || jsx.includes('shadow=') || jsx.includes('innerShadow=') ||
+          jsx.includes('blur=') || jsx.includes('bgBlur=')) {
         const { FigmaClient } = await import('./figma-client.js');
         const client = new FigmaClient();
         const code = await client.parseJSX(jsx);

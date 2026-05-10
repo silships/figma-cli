@@ -1349,12 +1349,106 @@ export class FigmaClient {
         code: `${elementVar}.${property} = [boundFill(vars['${varName}'])];`,
         usesVars: true
       };
-    } else {
-      return {
-        code: `${elementVar}.${property} = [{type:'SOLID',color:${this.hexToRgbCode(value)}}];`,
-        usesVars: false
-      };
     }
+    // Gradient: bg="linear-gradient(180deg, #FF0000, #00FF00)"
+    if (typeof value === 'string' && /^(linear|radial|angular|diamond)-gradient\s*\(/i.test(value.trim())) {
+      const paint = this.parseGradient(value);
+      if (paint) {
+        return { code: `${elementVar}.${property} = [${paint}];`, usesVars: false };
+      }
+    }
+    return {
+      code: `${elementVar}.${property} = [{type:'SOLID',color:${this.hexToRgbCode(value)}}];`,
+      usesVars: false
+    };
+  }
+
+  /**
+   * Parse a CSS-like gradient string into a Figma GradientPaint code expression.
+   * Supports:
+   *   linear-gradient(180deg, #FF0000, #00FF00)
+   *   linear-gradient(180deg, #FF0000 0%, #00FF00 100%)
+   *   radial-gradient(#FF0000, #00FF00)
+   *   angular-gradient(#FF0000, #00FF00, #0000FF)
+   *   diamond-gradient(#FF0000, #00FF00)
+   */
+  parseGradient(str) {
+    const m = str.trim().match(/^(linear|radial|angular|diamond)-gradient\s*\(([\s\S]*)\)\s*$/i);
+    if (!m) return null;
+    const kind = m[1].toLowerCase();
+    const typeMap = {
+      linear: 'GRADIENT_LINEAR',
+      radial: 'GRADIENT_RADIAL',
+      angular: 'GRADIENT_ANGULAR',
+      diamond: 'GRADIENT_DIAMOND',
+    };
+    const type = typeMap[kind];
+    // Split top-level by commas (but not inside rgba(...))
+    const parts = [];
+    let depth = 0, buf = '';
+    for (const ch of m[2]) {
+      if (ch === '(') depth++;
+      else if (ch === ')') depth--;
+      if (ch === ',' && depth === 0) { parts.push(buf.trim()); buf = ''; }
+      else buf += ch;
+    }
+    if (buf.trim()) parts.push(buf.trim());
+    if (parts.length < 2) return null;
+
+    let angleDeg = 180; // CSS default: top to bottom
+    let stopParts = parts;
+    const angleMatch = parts[0].match(/^(-?\d+(?:\.\d+)?)deg$/i);
+    if (angleMatch) {
+      angleDeg = parseFloat(angleMatch[1]);
+      stopParts = parts.slice(1);
+    }
+    if (stopParts.length < 2) return null;
+
+    // Parse each stop: "#FF0000" or "#FF0000 50%" or "rgba(...) 50%"
+    const stops = [];
+    stopParts.forEach((sp, i) => {
+      const posMatch = sp.match(/(-?\d+(?:\.\d+)?)%\s*$/);
+      let pos = posMatch ? parseFloat(posMatch[1]) / 100 : i / (stopParts.length - 1);
+      const colorStr = posMatch ? sp.slice(0, posMatch.index).trim() : sp.trim();
+      let color;
+      const rgbaMatch = colorStr.match(/^rgba?\(([^)]+)\)$/);
+      if (rgbaMatch) {
+        const ps = rgbaMatch[1].split(',').map(p => p.trim());
+        color = {
+          r: parseInt(ps[0]) / 255,
+          g: parseInt(ps[1]) / 255,
+          b: parseInt(ps[2]) / 255,
+          a: ps.length > 3 ? parseFloat(ps[3]) : 1,
+        };
+      } else {
+        const c = this.hexToRgb(colorStr);
+        if (!c) return;
+        let a = 1;
+        if (colorStr.length === 9 && colorStr.startsWith('#')) {
+          a = parseInt(colorStr.slice(7, 9), 16) / 255;
+        }
+        color = { ...c, a };
+      }
+      stops.push({ position: pos, color });
+    });
+    if (stops.length < 2) return null;
+
+    // Compute gradientTransform from angle.
+    // CSS 0deg = bottom-to-top (going up), 180deg = top-to-bottom.
+    // Figma's gradientTransform's gradient line goes (0,0)->(1,0) in transformed coords.
+    // For 180deg (top->bottom): want line direction = (0,1). Use rotation 90deg.
+    const rad = ((angleDeg - 90) * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    // Center the gradient at (0.5, 0.5) before rotating
+    const tx = 0.5 - 0.5 * cos + 0.5 * sin;
+    const ty = 0.5 - 0.5 * sin - 0.5 * cos;
+    const transform = `[[${cos.toFixed(4)},${(-sin).toFixed(4)},${tx.toFixed(4)}],[${sin.toFixed(4)},${cos.toFixed(4)},${ty.toFixed(4)}]]`;
+
+    const stopsCode = stops.map(s =>
+      `{position:${s.position},color:{r:${s.color.r.toFixed(4)},g:${s.color.g.toFixed(4)},b:${s.color.b.toFixed(4)},a:${s.color.a}}}`
+    ).join(',');
+    return `{type:'${type}',gradientStops:[${stopsCode}],gradientTransform:${transform}}`;
   }
 
   /**
