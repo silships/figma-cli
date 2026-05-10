@@ -8330,6 +8330,14 @@ blocksCmd
     }
   });
 
+// Shared error handler for commands that hit Figma's API via daemonExec.
+// Prints the error, then tries to surface relevant Figma Plugin API docs.
+function handleEvalError(e) {
+  console.error(chalk.red('✗'), e.message);
+  try { apiDocs.suggestFromError(e.message); } catch { /* docs not installed, no-op */ }
+  process.exit(1);
+}
+
 // ============ DEV RESOURCES ============
 // Link Figma nodes to dev artifacts (Storybook, GitHub, docs, etc.)
 
@@ -8356,8 +8364,7 @@ devCmd
       console.log(chalk.green('✓'), `Linked: ${r.name} (${r.id}) → ${url}`);
       console.log(chalk.gray(`  Total dev resources: ${r.count}`));
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8388,8 +8395,7 @@ devCmd
         console.log(chalk.gray(`     ${res.url}`));
       });
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8411,8 +8417,7 @@ devCmd
       console.log(chalk.green('✓'), `Unlinked from ${r.name} (${r.id})`);
       console.log(chalk.gray(`  Remaining dev resources: ${r.count}`));
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8435,8 +8440,7 @@ devCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Edited dev resource on ${r.name} (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8468,8 +8472,7 @@ sectionCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Created section "${r.name}" (${r.id}) with ${r.count} child(ren)`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8492,8 +8495,7 @@ sectionCmd
         console.log(`  ${s.name}  ${chalk.gray('(' + s.id + ')')}  ${chalk.gray(s.count + ' children')}`);
       });
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8519,8 +8521,7 @@ sectionCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Added to section "${r.name}" (${r.id}). Total children: ${r.count}`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8576,8 +8577,7 @@ gridCmd
       console.log(chalk.green('✓'), `Set grid on ${r.name} (${r.id})`);
       console.log(chalk.gray(`  Total grids: ${r.count}`));
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8610,8 +8610,7 @@ gridCmd
         }
       });
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8631,8 +8630,7 @@ gridCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Cleared grids on ${r.name} (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8679,8 +8677,7 @@ propCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Added property "${r.propName}" on ${r.name} (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8713,8 +8710,7 @@ propCmd
         console.log(`  ${propName}  ${chalk.gray(def.type)}  default=${JSON.stringify(def.defaultValue)}${tail}`);
       });
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8734,8 +8730,7 @@ propCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Deleted "${propName}" on ${r.name} (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8762,8 +8757,7 @@ componentCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Combined ${r.count} components into "${r.name}" (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8802,8 +8796,7 @@ annotateCmd
       console.log(chalk.green('✓'), `Annotated ${r.name} (${r.id})`);
       console.log(chalk.gray(`  Total annotations: ${r.count}`));
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8833,8 +8826,7 @@ annotateCmd
         console.log(`  ${i + 1}. ${label}`);
       });
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 
@@ -8854,8 +8846,7 @@ annotateCmd
       const r = await daemonExec('eval', { code });
       console.log(chalk.green('✓'), `Cleared annotations on ${r.name} (${r.id})`);
     } catch (e) {
-      console.error(chalk.red('✗'), e.message);
-      process.exit(1);
+      handleEvalError(e);
     }
   });
 

@@ -107,6 +107,90 @@ export function show(query) {
 }
 
 /**
+ * Try to extract a Figma API name from a runtime error message,
+ * then call suggest() if the docs are installed.
+ * Returns true if a useful suggestion was emitted, false otherwise.
+ *
+ * Recognized patterns:
+ *   "TypeError: <obj>.<name> is not a function"     -> name
+ *   "Property \"<name>\" failed validation"          -> name
+ *   "Error: in <name>: ..."                          -> name
+ *   "Cannot read properties of undefined (reading '<name>')" -> name
+ */
+export function suggestFromError(message) {
+  if (!message || typeof message !== 'string') return false;
+  const candidates = [];
+  let m;
+  // Match the last identifier before "is not a function" (e.g. "figma.createImage" -> "createImage")
+  if ((m = message.match(/([a-zA-Z][a-zA-Z0-9_]+)\s+is not a function/))) candidates.push(m[1]);
+  if ((m = message.match(/Property\s+"([a-zA-Z][a-zA-Z0-9_.#]+)"\s+failed validation/))) {
+    // "node.addComponentProperty.options" -> "addComponentProperty"
+    const last = m[1].split('.').pop();
+    candidates.push(last);
+  }
+  if ((m = message.match(/Error:\s+in\s+([a-zA-Z][a-zA-Z0-9_]+)/))) candidates.push(m[1]);
+  if ((m = message.match(/Cannot read propert(?:y|ies)\s+(?:of undefined\s+\(reading\s+)?'?([a-zA-Z][a-zA-Z0-9_]+)'?/))) candidates.push(m[1]);
+  // Strip "set_"/"get_" prefixes Figma adds to setters
+  const cleaned = candidates.map(c => c.replace(/^(set_|get_)/, ''));
+  // Filter out generic JS terms
+  const skip = new Set(['undefined', 'null', 'object', 'function', 'string', 'number', 'array', 'true', 'false', 'foo', 'bar', 'baz', 'something', 'value', 'data', 'item']);
+  // Need at least 5 chars to be likely a real API name (avoids "foo", "id", etc.)
+  const useful = [...new Set(cleaned)].filter(c => c.length >= 5 && !skip.has(c.toLowerCase()));
+  if (useful.length === 0) return false;
+
+  if (!isInstalled()) return false;
+
+  // Search both: interface names (fast, fuzzy) AND interface contents (for method/property names)
+  const all = listAll() || [];
+  const hits = new Map(); // name -> { name, kind, file, score, matchedTerm }
+
+  for (const term of useful) {
+    // 1. Name-based fuzzy match
+    for (const i of all) {
+      const s = score(i.name, term);
+      if (s > 0) {
+        const ex = hits.get(i.name);
+        if (!ex || s > ex.score) hits.set(i.name, { ...i, score: s, matchedTerm: term, source: 'name' });
+      }
+    }
+    // 2. Content search: which files contain this term?
+    // Higher score if term appears as a heading (### term) — that's where it's DEFINED.
+    const headingRe = new RegExp(`^#{2,4}\\s+${term}\\b`, 'm');
+    const wordRe = new RegExp(`\\b${term}\\b`);
+    for (const i of all) {
+      if (hits.has(i.name) && hits.get(i.name).source === 'name') continue;
+      try {
+        const content = fs.readFileSync(i.file, 'utf-8');
+        let s = 0;
+        if (headingRe.test(content)) {
+          // Defined here — high score
+          s = 80;
+        } else if (wordRe.test(content)) {
+          // Just mentioned — low score
+          s = i.kind === 'interface' ? 25 : 15;
+        }
+        if (s > 0) {
+          const ex = hits.get(i.name);
+          if (!ex || s > ex.score) hits.set(i.name, { ...i, score: s, matchedTerm: term, source: s >= 80 ? 'definition' : 'mention' });
+        }
+      } catch { /* skip unreadable */ }
+    }
+  }
+
+  const top = [...hits.values()].sort((a, b) => b.score - a.score).slice(0, 5);
+  if (top.length === 0) return false;
+
+  console.error('\n  💡 Looks like this might map to a Figma Plugin API. Try:');
+  for (const r of top) {
+    let tag = '';
+    if (r.source === 'definition') tag = ` (defines "${r.matchedTerm}")`;
+    else if (r.source === 'mention') tag = ` (mentions "${r.matchedTerm}")`;
+    console.error(`    figma-cli api ${r.name}${tag}`);
+  }
+  return true;
+}
+
+/**
  * Suggest API interfaces/types when user types an unknown command.
  * Hint without crashing if docs not installed.
  */
