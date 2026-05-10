@@ -43,6 +43,11 @@ You say it in plain English. The AI translates it into figma-cli calls. Figma up
 - Auto-suggests interface references when commands fail — agents self-correct
 - Same CLI works with Claude Code, opencode, Cursor, or a local LLM via LM Studio / Ollama
 
+**Voice control (optional)**
+- Push-to-talk: say "create three pricing cards", figma-cli does it
+- macOS only, requires an Anthropic API key
+- `figma-cli plugins install voice && figma-cli plugins setup voice && figma-cli voice`
+
 ---
 
 ## Quick start
