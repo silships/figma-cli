@@ -2682,7 +2682,8 @@ const tokens = flattenTokens(data);
 let count = 0;
 
 for (const { name, value, type } of tokens) {
-  const existing = existingVars.find(v => v.name === name);
+  // Scoped to the target collection — overlapping names across collections OK
+  const existing = existingVars.find(v => v.name === name && v.variableCollectionId === col.id);
   if (!existing) {
     try {
       const figmaType = type === 'COLOR' ? 'COLOR' : type === 'FLOAT' || type === 'NUMBER' ? 'FLOAT' : type === 'BOOLEAN' ? 'BOOLEAN' : 'STRING';
@@ -2758,13 +2759,15 @@ const modeId = col.modes[0].modeId;
 const existingVars = await figma.variables.getLocalVariablesAsync();
 let count = 0;
 
-// Colors
+// Colors. Skip-check scoped to the TARGET collection so multiple design
+// systems can coexist with overlapping token names (Airbnb's primary AND
+// Cursor's primary, switchable via "Apply variable mode" in Figma).
 for (const [name, entry] of Object.entries(data)) {
   if (name === '_radii') continue;
   const value = entry?.value ?? entry;
   const rgb = typeof value === 'string' ? hexToRgb(value) : null;
   if (!rgb) continue;
-  if (existingVars.find(v => v.name === name)) continue;
+  if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
   try {
     const v = figma.variables.createVariable(name, col, 'COLOR');
     v.setValueForMode(modeId, rgb);
@@ -2776,7 +2779,7 @@ if (data._radii) {
   for (const [name, entry] of Object.entries(data._radii)) {
     const num = typeof entry === 'object' ? entry.value : entry;
     if (typeof num !== 'number') continue;
-    if (existingVars.find(v => v.name === name)) continue;
+    if (existingVars.find(v => v.name === name && v.variableCollectionId === col.id)) continue;
     try {
       const v = figma.variables.createVariable(name, col, 'FLOAT');
       v.setValueForMode(modeId, num);
