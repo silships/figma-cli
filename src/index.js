@@ -2586,6 +2586,100 @@ return 'Imported ' + count + ' tokens into ' + collectionName;
   });
 
 tokens
+  .command('import-design-md <file>')
+  .description('Import tokens from a DESIGN.md (Figma extraction format with `## 11. Machine-readable tokens` JSON block). Creates color, radius, and typography variables. Also prints a context summary for figmachat.')
+  .option('-c, --collection <name>', 'Collection name (defaults to the design system name)')
+  .option('--print-context', 'Just print the figmachat context summary, do not create variables')
+  .action(async (file, options) => {
+    let parsed;
+    try {
+      const { parseDesignMd } = await import('./design-md.js');
+      parsed = parseDesignMd(file);
+    } catch (e) {
+      console.error(chalk.red('✗'), e.message);
+      process.exit(1);
+    }
+
+    if (options.printContext) {
+      const { summarizeForLLM } = await import('./design-md.js');
+      console.log(summarizeForLLM(parsed));
+      return;
+    }
+
+    checkConnection();
+    const { toTokensImportJson, summarizeForLLM } = await import('./design-md.js');
+    const tokensData = toTokensImportJson(parsed);
+    const collectionName = options.collection || parsed.meta.source || 'Imported Design System';
+    const colorCount = Object.keys(tokensData.color || {}).length;
+    const radiusCount = Object.keys(tokensData.radius || {}).length;
+    const typoCount = Object.keys(tokensData.typography || {}).length;
+
+    const spinner = ora(`Importing ${colorCount} colors, ${radiusCount} radii, ${typoCount} type styles from ${file}...`).start();
+
+    const code = `(async () => {
+const data = ${JSON.stringify({ ...tokensData.color, _radii: tokensData.radius })};
+const collectionName = ${JSON.stringify(collectionName)};
+
+function hexToRgb(hex) {
+  const r = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hex);
+  if (!r) return null;
+  return { r: parseInt(r[1], 16) / 255, g: parseInt(r[2], 16) / 255, b: parseInt(r[3], 16) / 255 };
+}
+
+const cols = await figma.variables.getLocalVariableCollectionsAsync();
+let col = cols.find(c => c.name === collectionName);
+if (!col) col = figma.variables.createVariableCollection(collectionName);
+const modeId = col.modes[0].modeId;
+
+const existingVars = await figma.variables.getLocalVariablesAsync();
+let count = 0;
+
+// Colors
+for (const [name, entry] of Object.entries(data)) {
+  if (name === '_radii') continue;
+  const value = entry?.value ?? entry;
+  const rgb = typeof value === 'string' ? hexToRgb(value) : null;
+  if (!rgb) continue;
+  if (existingVars.find(v => v.name === name)) continue;
+  try {
+    const v = figma.variables.createVariable(name, col, 'COLOR');
+    v.setValueForMode(modeId, rgb);
+    count++;
+  } catch (e) {}
+}
+// Radii
+if (data._radii) {
+  for (const [name, entry] of Object.entries(data._radii)) {
+    const num = typeof entry === 'object' ? entry.value : entry;
+    if (typeof num !== 'number') continue;
+    if (existingVars.find(v => v.name === name)) continue;
+    try {
+      const v = figma.variables.createVariable(name, col, 'FLOAT');
+      v.setValueForMode(modeId, num);
+      count++;
+    } catch (e) {}
+  }
+}
+
+return 'Imported ' + count + ' tokens into ' + collectionName;
+})()`;
+
+    try {
+      const result = await daemonExec('eval', { code });
+      spinner.succeed(result || 'Tokens imported');
+    } catch (error) {
+      spinner.fail('Failed to import tokens');
+      console.error(error.message);
+      process.exit(1);
+    }
+
+    console.log();
+    console.log(chalk.cyan('─── figmachat context (drop into /design) ───'));
+    console.log(summarizeForLLM(parsed));
+    console.log(chalk.cyan('──────────────────────────────────────────────'));
+  });
+
+tokens
   .command('ds')
   .description('Create IDS Base Design System (complete starter kit)')
   .action(async () => {

@@ -20,8 +20,9 @@
 You say it in plain English. The AI translates it into figma-cli calls. Figma updates instantly.
 
 **Design systems**
-- Spin up shadcn/ui components (all 30, with real Lucide icons)
+- Spin up shadcn/ui components (41 visual + 5 interactive-only, with real Lucide icons)
 - Generate design tokens — shadcn, Tailwind, custom — bound to Light/Dark modes
+- **Import a whole design system from a `DESIGN.md` extraction file** (see below)
 - Build component sets with variants (`Size=Small`, `Size=Medium`, ...)
 - Link components to Storybook, GitHub, or internal docs
 - Add inline annotations to document usage rules and token references
@@ -95,6 +96,38 @@ If your local LLM gets a command wrong, figma-cli surfaces relevant Figma Plugin
 ```
 
 Run `figma-cli api setup` once (5 MB download) to enable this. Works offline forever after.
+
+---
+
+## Import a design system from a DESIGN.md
+
+If you (or a teammate) extracted a Figma file into a `DESIGN.md` — using any tool that emits the standard format with a `## 11. Machine-readable tokens` section and a `` ```json design-tokens `` code block at the end — figma-cli can ingest it directly:
+
+```bash
+figma-cli tokens import-design-md /path/to/DESIGN.md
+```
+
+This creates Figma variables for every color, radius, and typography token defined in the JSON block. The collection is named after the system's `meta.source` (e.g. "Carbon Design System", "Material 3", "Polaris") unless you pass `-c <name>`.
+
+**Expected JSON shape** (any DESIGN.md following the same convention works — this is format-agnostic, not Carbon-specific):
+
+```json
+{
+  "meta": { "source": "Your Design System", "generated": "2026-01-01" },
+  "color":      { "accent": "#0f62fe", "text-primary": "#161616", ... },
+  "radius":     { "radius-md": 2, "radius-lg": 8, ... },
+  "typography": { "h1": { "fontFamily": "Inter", "fontSize": 70, ... }, ... },
+  "shadow":     { "elev-1": "0 1px 2px rgba(0,0,0,0.05)", ... },
+  "fonts":      ["Inter", "IBM Plex Sans", ...]
+}
+```
+
+**For local LLM agents** — also drop the same file into `figmachat` with `/design /path/to/DESIGN.md`. The agent learns your token names and existing component vocabulary, so future renders use `bg="var:accent"` instead of `bg="#0f62fe"` and reference your existing Button / Card / etc. instead of generating duplicates.
+
+Preview the agent context without touching variables:
+```bash
+figma-cli tokens import-design-md /path/to/DESIGN.md --print-context
+```
 
 ---
 
