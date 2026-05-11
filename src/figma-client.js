@@ -394,31 +394,44 @@ export class FigmaClient {
           scopedColIds = new Set(scoped.map(c => c.id));
         }
         globalThis.__varsCache = {};
+        // Register a variable under its full name AND under its "tail" name
+        // (the part after the last "/" in a slash-grouped name). So a token
+        // named "colors/primary" can be resolved as either var:primary or
+        // var:colors/primary. The full name always wins if both exist.
+        const register = (v) => {
+          if (!globalThis.__varsCache[v.name]) globalThis.__varsCache[v.name] = v;
+          const slash = v.name.lastIndexOf('/');
+          if (slash >= 0) {
+            const tail = v.name.slice(slash + 1);
+            if (tail && !globalThis.__varsCache[tail]) globalThis.__varsCache[tail] = v;
+          }
+        };
         if (scopedColIds) {
           for (const v of allVars) {
-            if (scopedColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
+            if (scopedColIds.has(v.variableCollectionId)) register(v);
           }
         } else {
-          // Pass 1: shadcn first (preferred when both exist)
           for (const v of allVars) {
-            if (shadcnColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
+            if (shadcnColIds.has(v.variableCollectionId)) register(v);
           }
-          // Pass 2: everything else, only filling in unknown names
           for (const v of allVars) {
-            if (!shadcnColIds.has(v.variableCollectionId) && !globalThis.__varsCache[v.name]) {
-              globalThis.__varsCache[v.name] = v;
-            }
+            if (!shadcnColIds.has(v.variableCollectionId)) register(v);
           }
         }
         // Also stash collection-name → id map for the var:collection:name
-        // per-attribute override syntax. The renderer below consults this.
+        // per-attribute override syntax. Same tail-aliasing applies.
         globalThis.__varsByCollection = {};
-        const colsByLower = {};
-        for (const c of collections) colsByLower[c.name.toLowerCase()] = c.id;
         for (const v of allVars) {
-          // Build a "collection-qualified" cache too, e.g. "figma:primary"
           const col = collections.find(c => c.id === v.variableCollectionId);
-          if (col) globalThis.__varsByCollection[col.name.toLowerCase() + ':' + v.name] = v;
+          if (!col) continue;
+          const colKey = col.name.toLowerCase() + ':';
+          globalThis.__varsByCollection[colKey + v.name] = v;
+          const slash = v.name.lastIndexOf('/');
+          if (slash >= 0) {
+            const tail = v.name.slice(slash + 1);
+            const alias = colKey + tail;
+            if (tail && !globalThis.__varsByCollection[alias]) globalThis.__varsByCollection[alias] = v;
+          }
         }
         globalThis.__varsCacheTime = Date.now();
         globalThis.__varsCacheFilter = filter;
@@ -1379,24 +1392,33 @@ export class FigmaClient {
             );
           }
           globalThis.__varsCache = {};
+          // Register full name + tail-after-slash alias, so a variable named
+          // "colors/primary" resolves as either var:primary or var:colors/primary.
+          const register = (v) => {
+            if (!globalThis.__varsCache[v.name]) globalThis.__varsCache[v.name] = v;
+            const slash = v.name.lastIndexOf('/');
+            if (slash >= 0) {
+              const tail = v.name.slice(slash + 1);
+              if (tail && !globalThis.__varsCache[tail]) globalThis.__varsCache[tail] = v;
+            }
+          };
           if (scopedColIds) {
-            for (const v of allVars) {
-              if (scopedColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
-            }
+            for (const v of allVars) if (scopedColIds.has(v.variableCollectionId)) register(v);
           } else {
-            for (const v of allVars) {
-              if (shadcnColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
-            }
-            for (const v of allVars) {
-              if (!shadcnColIds.has(v.variableCollectionId) && !globalThis.__varsCache[v.name]) {
-                globalThis.__varsCache[v.name] = v;
-              }
-            }
+            for (const v of allVars) if (shadcnColIds.has(v.variableCollectionId)) register(v);
+            for (const v of allVars) if (!shadcnColIds.has(v.variableCollectionId)) register(v);
           }
           globalThis.__varsByCollection = {};
           for (const v of allVars) {
             const col = collections.find(c => c.id === v.variableCollectionId);
-            if (col) globalThis.__varsByCollection[col.name.toLowerCase() + ':' + v.name] = v;
+            if (!col) continue;
+            const colKey = col.name.toLowerCase() + ':';
+            globalThis.__varsByCollection[colKey + v.name] = v;
+            const slash = v.name.lastIndexOf('/');
+            if (slash >= 0) {
+              const tail = v.name.slice(slash + 1);
+              if (tail && !globalThis.__varsByCollection[colKey + tail]) globalThis.__varsByCollection[colKey + tail] = v;
+            }
           }
           globalThis.__varsCacheTime = Date.now();
           globalThis.__varsCacheFilter = filter;
