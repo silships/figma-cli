@@ -29,6 +29,49 @@ function unescapeShell(str) {
   return str.replace(/\\!/g, '!');
 }
 
+// Patterns that aren't worth running as --query because they match Figma's
+// default auto-names — they'd select every unnamed node in the whole tree.
+const GENERIC_NAME_PATTERNS = new Set([
+  'frame', 'component', 'instance', 'group', 'rectangle', 'rect',
+  'ellipse', 'line', 'text', 'vector', 'star', 'polygon', 'section',
+]);
+
+/**
+ * Build the JS snippet that resolves a target `nodes` list inside an eval.
+ * One source-of-truth for all `set <subcommand>` selectors. Supports:
+ *  - --query "pattern"     fuzzy name match (rejects generic defaults)
+ *  - --node "id"           single node
+ *  - --node "id1,id2,id3"  multiple comma-separated nodes
+ *  - (none)                figma.currentPage.selection
+ *
+ * `filterExpr` is optional and lets a caller scope --query to nodes that
+ * actually support the property (e.g. `'fills' in n`).
+ */
+function buildNodeSelector(options, { filterExpr = '' } = {}) {
+  if (options.query) {
+    const q = String(options.query).trim();
+    if (GENERIC_NAME_PATTERNS.has(q.toLowerCase())) {
+      console.error(chalk.red('✗'),
+        `--query "${q}" matches Figma's default node name and would select every unnamed ${q.toLowerCase()} in the file.`);
+      console.error(chalk.yellow('  Use --node <id> with specific IDs, or rename your targets first.'));
+      process.exit(1);
+    }
+    const filter = filterExpr ? `(${filterExpr}) && ` : '';
+    return `const __pat = ${JSON.stringify(q.toLowerCase())};
+       const nodes = figma.currentPage.findAll(n => ${filter}typeof n.name === 'string' && n.name.toLowerCase().includes(__pat));`;
+  }
+  if (options.node) {
+    const ids = String(options.node).split(/[\s,]+/).filter(Boolean);
+    if (ids.length === 1) {
+      return `const __n = await figma.getNodeByIdAsync(${JSON.stringify(ids[0])}); const nodes = __n ? [__n] : [];`;
+    }
+    return `const __ids = ${JSON.stringify(ids)};
+       const __res = await Promise.all(__ids.map(id => figma.getNodeByIdAsync(id)));
+       const nodes = __res.filter(Boolean);`;
+  }
+  return `const nodes = figma.currentPage.selection;`;
+}
+
 // Daemon configuration
 const DAEMON_PORT = 3456;
 const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
@@ -4120,11 +4163,7 @@ bind
   .option('-n, --node <id>', 'Node ID (uses selection if not set)')
   .action((varName, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
@@ -4148,11 +4187,7 @@ bind
   .option('-n, --node <id>', 'Node ID')
   .action((varName, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
@@ -4177,11 +4212,7 @@ bind
   .option('-n, --node <id>', 'Node ID')
   .action((varName, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
@@ -4202,11 +4233,7 @@ bind
   .option('-n, --node <id>', 'Node ID')
   .action((varName, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `(async () => {
 ${nodeSelector}
 const vars = await figma.variables.getLocalVariablesAsync();
@@ -4228,11 +4255,7 @@ bind
   .option('-s, --side <side>', 'Side: top, right, bottom, left, all', 'all')
   .action((varName, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     const sides = options.side === 'all'
       ? ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']
       : [`padding${options.side.charAt(0).toUpperCase() + options.side.slice(1)}`];
@@ -4470,21 +4493,19 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern> (case-insensitive)')
   .action(async (color, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify(options.query.toLowerCase())};
-         const matches = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));
-         const expanded = [];
-         for (const m of matches) {
-           if ('fills' in m) { expanded.push(m); continue; }
-           if (typeof m.findAll === 'function') {
-             const children = m.findAll(c => 'fills' in c);
-             expanded.push(...children);
-           }
+    // For fill, after the standard selector runs we walk into matched
+    // containers (Groups, Frames) and expand to their fillable descendants
+    // when they don't have fills themselves.
+    const nodeSelector = buildNodeSelector(options) + `
+       const __expanded = [];
+       for (const __m of nodes) {
+         if ('fills' in __m) { __expanded.push(__m); continue; }
+         if (typeof __m.findAll === 'function') {
+           __expanded.push(...__m.findAll(c => 'fills' in c));
          }
-         const nodes = expanded;`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+       }
+       const __fillNodes = __expanded;`;
+    // Code below will reference __fillNodes instead of nodes for the actual mutation.
 
     let code;
     if (color.startsWith('var:')) {
@@ -4501,10 +4522,10 @@ set
         }
         if (!variable) return 'Variable ${varName} not found';
         ${nodeSelector}
-        if (nodes.length === 0) return 'No node found';
+        if (__fillNodes.length === 0) return 'No node found';
         const boundFill = (v) => figma.variables.setBoundVariableForPaint({ type: 'SOLID', color: { r: 0.5, g: 0.5, b: 0.5 } }, 'color', v);
-        nodes.forEach(n => { if ('fills' in n) n.fills = [boundFill(variable)]; });
-        return 'Bound ' + variable.name + ' to fill on ' + nodes.length + ' elements';
+        __fillNodes.forEach(n => { if ('fills' in n) n.fills = [boundFill(variable)]; });
+        return 'Bound ' + variable.name + ' to fill on ' + __fillNodes.length + ' elements';
       })()`;
       const result = await daemonExec('eval', { code });
       console.log(chalk.green('✓ ' + (result || 'Done')));
@@ -4513,9 +4534,9 @@ set
       const { r, g, b } = hexToRgb(color);
       code = `(async () => {
         ${nodeSelector}
-        if (nodes.length === 0) return 'No node found';
-        nodes.forEach(n => { if ('fills' in n) n.fills = [{ type: 'SOLID', color: { r: ${r}, g: ${g}, b: ${b} } }]; });
-        return 'Fill set on ' + nodes.length + ' elements';
+        if (__fillNodes.length === 0) return 'No node found';
+        __fillNodes.forEach(n => { if ('fills' in n) n.fills = [{ type: 'SOLID', color: { r: ${r}, g: ${g}, b: ${b} } }]; });
+        return 'Fill set on ' + __fillNodes.length + ' elements';
       })()`;
       figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
     }
@@ -4529,11 +4550,7 @@ set
   .option('-w, --weight <n>', 'Stroke weight', '1')
   .action(async (color, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
 
     let code;
     if (color.startsWith('var:')) {
@@ -4577,11 +4594,7 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
   .action((value, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
@@ -4597,11 +4610,7 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
   .action((width, height, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
@@ -4627,11 +4636,7 @@ set
       console.error(chalk.red('✗'), `Invalid scale factor: ${factor}. Use e.g. 1.2, 1.2x, or 120%.`);
       process.exit(1);
     }
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync(${JSON.stringify(options.node)}); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     const code = `(async () => {
       ${nodeSelector}
       if (nodes.length === 0) return 'No node found';
@@ -4658,11 +4663,7 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
   .action((x, y, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
@@ -4678,11 +4679,7 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
   .action((value, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
@@ -4698,11 +4695,7 @@ set
   .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
   .action((name, options) => {
     checkConnection();
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const nodes = figma.currentPage.findAll(n => typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const node = await figma.getNodeByIdAsync('${options.node}'); const nodes = node ? [node] : [];`
-        : `const nodes = figma.currentPage.selection;`;
+    const nodeSelector = buildNodeSelector(options);
     let code = `
 ${nodeSelector}
 if (nodes.length === 0) 'No node found';
@@ -4762,38 +4755,67 @@ set
 set
   .command('autolayout <direction>')
   .alias('al')
-  .description('Apply auto-layout (row/col) to a node or selection')
+  .description('Apply auto-layout (row/col) with optional sizing, align, and wrap')
   .option('-g, --gap <n>', 'Gap between items', '8')
-  .option('-p, --padding <n>', 'Padding')
-  .option('-n, --node <id>', 'Apply to this node ID (instead of current selection)')
-  .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
-  .action((direction, options) => {
-    checkConnection();
-    const layoutMode = direction === 'col' || direction === 'vertical' ? 'VERTICAL' : 'HORIZONTAL';
-    const nodeSelector = options.query
-      ? `const pattern = ${JSON.stringify((options.query || '').toLowerCase())}; const sel = figma.currentPage.findAll(n => (n.type === 'FRAME' || n.type === 'COMPONENT') && typeof n.name === 'string' && n.name.toLowerCase().includes(pattern));`
-      : options.node
-        ? `const root = await figma.getNodeByIdAsync(${JSON.stringify(options.node)}); const sel = root ? [root] : [];`
-        : `const sel = figma.currentPage.selection;`;
-    let code = `
+  .option('-p, --padding <n>', 'Uniform padding')
+  .option('--px <n>', 'Horizontal padding (overrides --padding for left/right)')
+  .option('--py <n>', 'Vertical padding (overrides --padding for top/bottom)')
+  .option('-n, --node <id>', 'Apply to this node ID (or comma-separated list of IDs)')
+  .option('-q, --query <pattern>', 'Apply to all FRAME/COMPONENT nodes whose name contains <pattern>')
+  .option('--sizing <mode>', 'Container sizing: hug (default), fill, fixed', 'hug')
+  .option('--align <a>', 'Children alignment: start | center | end | space-between', 'start')
+  .option('--wrap', 'Enable layout wrap (for row direction)')
+  .option('--fill-children', 'Set every child to FILL on the counter axis (good for cards with wrapping text)')
+  .action(async (direction, options) => {
+    await checkConnection();
+    const isCol = direction === 'col' || direction === 'vertical' || direction === 'column';
+    const layoutMode = isCol ? 'VERTICAL' : 'HORIZONTAL';
+    const sizingMode = ({
+      hug: 'AUTO', fill: 'FIXED', fixed: 'FIXED'
+    })[options.sizing] || 'AUTO';
+    const alignMap = {
+      start: 'MIN', center: 'CENTER', end: 'MAX', 'space-between': 'SPACE_BETWEEN'
+    };
+    const primaryAxisAlign = alignMap[options.align] || 'MIN';
+    const counterAxisAlign = options.align === 'center' ? 'CENTER' : 'MIN';
+    const px = options.px ?? options.padding;
+    const py = options.py ?? options.padding;
+    // The standard helper produces `const nodes = [...]`; for autolayout we
+    // also want to scope --query to FRAME/COMPONENT only (it's pointless
+    // to apply auto-layout to text or vector nodes).
+    const baseSelector = buildNodeSelector(options, { filterExpr: "(n.type === 'FRAME' || n.type === 'COMPONENT')" });
+    const code = `
 (async () => {
-${nodeSelector}
-if (sel.length === 0) { return 'No node found'; }
+${baseSelector}
+const sel = nodes.filter(n => n.type === 'FRAME' || n.type === 'COMPONENT');
+if (sel.length === 0) { return 'No frame/component to apply autolayout to'; }
 let count = 0;
 for (const n of sel) {
-  if (n.type === 'FRAME' || n.type === 'COMPONENT') {
-    n.layoutMode = '${layoutMode}';
-    n.primaryAxisSizingMode = 'AUTO';
-    n.counterAxisSizingMode = 'AUTO';
-    n.itemSpacing = ${options.gap};
-    ${options.padding ? `n.paddingTop = n.paddingRight = n.paddingBottom = n.paddingLeft = ${options.padding};` : ''}
-    count++;
-  }
+  n.layoutMode = '${layoutMode}';
+  n.primaryAxisSizingMode = ${JSON.stringify(sizingMode)};
+  n.counterAxisSizingMode = ${JSON.stringify(sizingMode)};
+  n.primaryAxisAlignItems = ${JSON.stringify(primaryAxisAlign)};
+  n.counterAxisAlignItems = ${JSON.stringify(counterAxisAlign)};
+  n.itemSpacing = ${parseInt(options.gap) || 0};
+  ${px !== undefined ? `n.paddingLeft = n.paddingRight = ${parseInt(px) || 0};` : ''}
+  ${py !== undefined ? `n.paddingTop = n.paddingBottom = ${parseInt(py) || 0};` : ''}
+  ${options.wrap && !isCol ? `if ('layoutWrap' in n) n.layoutWrap = 'WRAP';` : ''}
+  ${options.fillChildren ? `
+  for (const c of n.children) {
+    if ('layoutSizingHorizontal' in c) c.layoutSizingHorizontal = ${isCol ? "'FILL'" : "'HUG'"};
+    if ('layoutSizingVertical' in c) c.layoutSizingVertical = ${isCol ? "'HUG'" : "'FILL'"};
+  }` : ''}
+  count++;
 }
 return 'Auto-layout applied to ' + count + ' frame(s)';
 })()
 `;
-    figmaUse(`eval "${code.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`, { silent: false });
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓ ' + (r || 'Done')));
+    } catch (e) {
+      handleEvalError(e);
+    }
   });
 
 // ============ ARRANGE ============
