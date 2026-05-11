@@ -351,28 +351,29 @@ export class FigmaClient {
       `;
 
     // Variable caching: reuse loaded vars across calls.
-    // Scans ALL local collections (shadcn, Carbon, Material, user-imported, …)
-    // so a `var:accent` reference resolves regardless of which design system
-    // the user loaded. shadcn entries are loaded first so they remain a
-    // sensible default; later collections only fill in unknown names.
+    // Loads ALL local variables in a single batched call (Figma's
+    // getLocalVariablesAsync), then sorts shadcn-first so its names win when
+    // multiple collections define the same token. Avoids N round-trips
+    // when a user imports a Carbon / Material / DESIGN.md system with ~100
+    // variables — the per-id loop made renders feel like a hang.
     const varLoadCode = anyUsesVars ? `
       if (!globalThis.__varsCache || Date.now() - (globalThis.__varsCacheTime || 0) > 30000) {
-        const collections = await figma.variables.getLocalVariableCollectionsAsync();
+        const [collections, allVars] = await Promise.all([
+          figma.variables.getLocalVariableCollectionsAsync(),
+          figma.variables.getLocalVariablesAsync(),
+        ]);
+        const shadcnColIds = new Set(
+          collections.filter(c => c.name.startsWith('shadcn')).map(c => c.id)
+        );
         globalThis.__varsCache = {};
-        // Pass 1: shadcn (preferred when both exist)
-        for (const col of collections) {
-          if (!col.name.startsWith('shadcn')) continue;
-          for (const id of col.variableIds) {
-            const v = await figma.variables.getVariableByIdAsync(id);
-            if (v) globalThis.__varsCache[v.name] = v;
-          }
+        // Pass 1: shadcn first (preferred when both exist)
+        for (const v of allVars) {
+          if (shadcnColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
         }
-        // Pass 2: everything else (Carbon, Material, custom design-system imports, …)
-        for (const col of collections) {
-          if (col.name.startsWith('shadcn')) continue;
-          for (const id of col.variableIds) {
-            const v = await figma.variables.getVariableByIdAsync(id);
-            if (v && !globalThis.__varsCache[v.name]) globalThis.__varsCache[v.name] = v;
+        // Pass 2: everything else, only filling in unknown names
+        for (const v of allVars) {
+          if (!shadcnColIds.has(v.variableCollectionId) && !globalThis.__varsCache[v.name]) {
+            globalThis.__varsCache[v.name] = v;
           }
         }
         globalThis.__varsCacheTime = Date.now();
@@ -1226,25 +1227,25 @@ export class FigmaClient {
 
     // Variable loading code with caching (only if any vars used)
     const varLoadCode = usesVars ? `
-        // Load variables from ALL local collections (cached for 30s).
-        // shadcn pass first so a shadcn-style name wins ties; everything
-        // else fills in afterwards so Carbon / Material / user-imported
-        // design systems resolve too.
+        // Load variables from ALL local collections in one batched call
+        // (cached for 30s). shadcn pass first so a shadcn-style name wins
+        // ties; everything else fills in afterwards so Carbon / Material /
+        // user-imported design systems resolve too.
         if (!globalThis.__varsCache || Date.now() - (globalThis.__varsCacheTime || 0) > 30000) {
-          const collections = await figma.variables.getLocalVariableCollectionsAsync();
+          const [collections, allVars] = await Promise.all([
+            figma.variables.getLocalVariableCollectionsAsync(),
+            figma.variables.getLocalVariablesAsync(),
+          ]);
+          const shadcnColIds = new Set(
+            collections.filter(c => c.name.startsWith('shadcn')).map(c => c.id)
+          );
           globalThis.__varsCache = {};
-          for (const col of collections) {
-            if (!col.name.startsWith('shadcn')) continue;
-            for (const id of col.variableIds) {
-              const v = await figma.variables.getVariableByIdAsync(id);
-              if (v) globalThis.__varsCache[v.name] = v;
-            }
+          for (const v of allVars) {
+            if (shadcnColIds.has(v.variableCollectionId)) globalThis.__varsCache[v.name] = v;
           }
-          for (const col of collections) {
-            if (col.name.startsWith('shadcn')) continue;
-            for (const id of col.variableIds) {
-              const v = await figma.variables.getVariableByIdAsync(id);
-              if (v && !globalThis.__varsCache[v.name]) globalThis.__varsCache[v.name] = v;
+          for (const v of allVars) {
+            if (!shadcnColIds.has(v.variableCollectionId) && !globalThis.__varsCache[v.name]) {
+              globalThis.__varsCache[v.name] = v;
             }
           }
           globalThis.__varsCacheTime = Date.now();
