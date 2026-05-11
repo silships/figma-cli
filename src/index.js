@@ -5041,6 +5041,219 @@ return 'Auto-layout applied to ' + count + ' frame(s)';
     }
   });
 
+// ============ PIN (edge-anchored absolute positioning) ============
+//
+// Implements the directededges "Absolute Positioning" spec:
+// https://directededges.github.io/specs/guides/absolute-positioning/
+//
+// Figma stores absolutely-positioned elements as raw x/y from the parent's
+// top-left, plus a `constraints` object that records the anchor edge.
+// Designers think in terms of edges ("16 from right"), but figma's API
+// forces you to compute raw x = parent.width - node.width - 16 yourself.
+// `pin` does the math AND sets the matching constraint so the element
+// stays anchored when the parent resizes.
+
+program
+  .command('pin <edge>')
+  .description('Pin node(s) to a parent edge with an edge-relative offset. Edges: left | right | top | bottom | top-left | top-right | bottom-left | bottom-right | center-x | center-y | stretch-x | stretch-y | scale-x | scale-y')
+  .option('-n, --node <id>', 'Node ID (or comma-separated list)')
+  .option('-q, --query <pattern>', 'Apply to all nodes whose name contains <pattern>')
+  .option('-o, --offset <n>', 'Offset from the edge in px (default: 0). For top-right etc. it applies to the FIRST edge; use --offset-x / --offset-y to split.')
+  .option('--offset-x <n>', 'Horizontal offset (overrides --offset on the horizontal axis)')
+  .option('--offset-y <n>', 'Vertical offset (overrides --offset on the vertical axis)')
+  .option('--start <v>', 'For stretch-x/stretch-y/scale-x/scale-y: start offset (px) or percentage string for scale')
+  .option('--end <v>', 'For stretch-x/stretch-y/scale-x/scale-y: end offset (px) or percentage string for scale')
+  .action(async (edge, options) => {
+    await checkConnection();
+    const validEdges = new Set([
+      'left', 'right', 'top', 'bottom',
+      'top-left', 'top-right', 'bottom-left', 'bottom-right',
+      'center-x', 'center-y',
+      'stretch-x', 'stretch-y',
+      'scale-x', 'scale-y',
+    ]);
+    if (!validEdges.has(edge)) {
+      console.error(chalk.red('✗'), `Unknown edge "${edge}". Valid: ${[...validEdges].join(', ')}`);
+      process.exit(1);
+    }
+    const off = parseFloat(options.offset ?? 0);
+    const offX = options.offsetX !== undefined ? parseFloat(options.offsetX) : off;
+    const offY = options.offsetY !== undefined ? parseFloat(options.offsetY) : off;
+    const start = options.start;
+    const end = options.end;
+
+    // Build the per-node mutation. Runs inside the eval, so it can read each
+    // node's parent dimensions and compute the raw x/y per the Spec formulas.
+    // Constraints are set so Figma keeps the anchor when the parent resizes.
+    const pinExpr = `
+      function pinOne(n) {
+        if (!n || typeof n.x !== 'number' || !('constraints' in n)) return false;
+        const p = n.parent;
+        if (!p || typeof p.width !== 'number') return false;
+        const pw = p.width, ph = p.height;
+        const c = { ...n.constraints };
+        const edge = ${JSON.stringify(edge)};
+        const offX = ${offX}, offY = ${offY};
+        if (edge === 'left')        { n.x = offX;                          c.horizontal = 'MIN'; }
+        else if (edge === 'right')  { n.x = pw - n.width - offX;            c.horizontal = 'MAX'; }
+        else if (edge === 'top')    { n.y = offY;                          c.vertical = 'MIN'; }
+        else if (edge === 'bottom') { n.y = ph - n.height - offY;           c.vertical = 'MAX'; }
+        else if (edge === 'top-left')     { n.x = offX; n.y = offY;
+                                             c.horizontal = 'MIN'; c.vertical = 'MIN'; }
+        else if (edge === 'top-right')    { n.x = pw - n.width - offX; n.y = offY;
+                                             c.horizontal = 'MAX'; c.vertical = 'MIN'; }
+        else if (edge === 'bottom-left')  { n.x = offX; n.y = ph - n.height - offY;
+                                             c.horizontal = 'MIN'; c.vertical = 'MAX'; }
+        else if (edge === 'bottom-right') { n.x = pw - n.width - offX; n.y = ph - n.height - offY;
+                                             c.horizontal = 'MAX'; c.vertical = 'MAX'; }
+        else if (edge === 'center-x') { n.x = (pw - n.width) / 2 + offX; c.horizontal = 'CENTER'; }
+        else if (edge === 'center-y') { n.y = (ph - n.height) / 2 + offY; c.vertical = 'CENTER'; }
+        else if (edge === 'stretch-x') {
+          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
+          const sNum = s == null ? 0 : parseFloat(s);
+          const eNum = e == null ? 0 : parseFloat(e);
+          n.x = sNum;
+          n.resize(Math.max(1, pw - sNum - eNum), n.height);
+          c.horizontal = 'STRETCH';
+        }
+        else if (edge === 'stretch-y') {
+          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
+          const sNum = s == null ? 0 : parseFloat(s);
+          const eNum = e == null ? 0 : parseFloat(e);
+          n.y = sNum;
+          n.resize(n.width, Math.max(1, ph - sNum - eNum));
+          c.vertical = 'STRETCH';
+        }
+        else if (edge === 'scale-x') {
+          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
+          const sPct = typeof s === 'string' && s.endsWith('%') ? parseFloat(s) / 100 : (parseFloat(s) || 0) / pw;
+          const ePct = typeof e === 'string' && e.endsWith('%') ? parseFloat(e) / 100 : (parseFloat(e) || 0) / pw;
+          n.x = pw * sPct;
+          n.resize(Math.max(1, pw - n.x - pw * ePct), n.height);
+          c.horizontal = 'SCALE';
+        }
+        else if (edge === 'scale-y') {
+          const s = ${JSON.stringify(start)}, e = ${JSON.stringify(end)};
+          const sPct = typeof s === 'string' && s.endsWith('%') ? parseFloat(s) / 100 : (parseFloat(s) || 0) / ph;
+          const ePct = typeof e === 'string' && e.endsWith('%') ? parseFloat(e) / 100 : (parseFloat(e) || 0) / ph;
+          n.y = ph * sPct;
+          n.resize(n.width, Math.max(1, ph - n.y - ph * ePct));
+          c.vertical = 'SCALE';
+        }
+        n.constraints = c;
+        return true;
+      }
+    `;
+
+    const selector = buildNodeSelector(options);
+    const code = `(async () => {
+      ${selector}
+      if (nodes.length === 0) return 'No node found';
+      ${pinExpr}
+      let count = 0;
+      for (const n of nodes) if (pinOne(n)) count++;
+      return 'Pinned ' + count + ' element(s) to ' + ${JSON.stringify(edge)};
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      console.log(chalk.green('✓ ' + (r || 'Done')));
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+// ============ INSPECT (reverse: Figma → Spec) ============
+
+program
+  .command('inspect <nodeId>')
+  .description('Inspect a node and emit its position as Spec-canonical properties (start/end/centerOffset/etc.). JSON output via --json.')
+  .option('--json', 'Output as JSON (machine-readable)')
+  .option('--spec', 'Output only the absolute-positioning spec block (compact)')
+  .action(async (nodeId, options) => {
+    await checkConnection();
+    const code = `(async () => {
+      const n = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
+      if (!n) throw new Error('Node not found: ' + ${JSON.stringify(nodeId)});
+      const p = n.parent;
+      const out = {
+        id: n.id,
+        name: n.name,
+        type: n.type,
+        width: 'width' in n ? n.width : null,
+        height: 'height' in n ? n.height : null,
+      };
+      // Absolute-positioning spec output. Mirrors the directededges spec:
+      // active keys carry computed values, inactive ones are null (so a
+      // consumer can diff variants reliably).
+      if (n.layoutPositioning === 'ABSOLUTE' && p && 'width' in p) {
+        const c = n.constraints || { horizontal: 'MIN', vertical: 'MIN' };
+        const pw = p.width, ph = p.height;
+        const pos = {
+          position: 'ABSOLUTE',
+          start: null, end: null, top: null, bottom: null,
+          centerHorizontalOffset: null, centerVerticalOffset: null,
+          width: n.width, height: n.height,
+          layoutSizingHorizontal: null, layoutSizingVertical: null,
+        };
+        const pct = (v) => {
+          const p2 = Math.round(v * 10000) / 100;
+          return (p2 % 1 === 0 ? p2.toFixed(0) : (p2 % 0.1 === 0 ? p2.toFixed(1) : p2.toFixed(2))) + '%';
+        };
+        switch (c.horizontal) {
+          case 'MIN':     pos.start = n.x; break;
+          case 'MAX':     pos.end = pw - n.x - n.width; break;
+          case 'CENTER':  pos.centerHorizontalOffset = n.x + n.width / 2 - pw / 2; break;
+          case 'STRETCH': pos.start = n.x; pos.end = pw - n.x - n.width; pos.width = null; break;
+          case 'SCALE':   pos.start = pct(n.x / pw); pos.end = pct((pw - n.x - n.width) / pw); pos.width = null; break;
+        }
+        switch (c.vertical) {
+          case 'MIN':     pos.top = n.y; break;
+          case 'MAX':     pos.bottom = ph - n.y - n.height; break;
+          case 'CENTER':  pos.centerVerticalOffset = n.y + n.height / 2 - ph / 2; break;
+          case 'STRETCH': pos.top = n.y; pos.bottom = ph - n.y - n.height; pos.height = null; break;
+          case 'SCALE':   pos.top = pct(n.y / ph); pos.bottom = pct((ph - n.y - n.height) / ph); pos.height = null; break;
+        }
+        out.absolutePositioning = pos;
+      } else if (n.layoutPositioning === 'AUTO' || p?.layoutMode !== 'NONE') {
+        out.absolutePositioning = {
+          position: 'AUTO',
+          start: null, end: null, top: null, bottom: null,
+          centerHorizontalOffset: null, centerVerticalOffset: null,
+          width: null, height: null,
+          layoutSizingHorizontal: n.layoutSizingHorizontal ?? null,
+          layoutSizingVertical: n.layoutSizingVertical ?? null,
+        };
+      }
+      // Raw geometry alongside, useful for debugging the spec output
+      if ('x' in n) {
+        out.raw = { x: n.x, y: n.y, constraints: n.constraints };
+      }
+      return out;
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (options.json) {
+        console.log(JSON.stringify(r, null, 2));
+      } else if (options.spec) {
+        console.log(JSON.stringify(r.absolutePositioning, null, 2));
+      } else {
+        console.log(chalk.cyan(`${r.name || '(unnamed)'} (${r.id}) — ${r.type}`));
+        console.log(chalk.gray(`  size: ${r.width}×${r.height}`));
+        if (r.absolutePositioning) {
+          console.log(chalk.cyan('  Absolute Positioning spec:'));
+          for (const [k, v] of Object.entries(r.absolutePositioning)) {
+            if (v !== null) console.log(`    ${k}: ${typeof v === 'string' ? JSON.stringify(v) : v}`);
+          }
+        }
+        if (r.raw) {
+          console.log(chalk.gray(`  raw: x=${r.raw.x}, y=${r.raw.y}, constraints=${JSON.stringify(r.raw.constraints)}`));
+        }
+      }
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
 // ============ ARRANGE ============
 
 program

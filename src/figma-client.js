@@ -992,6 +992,21 @@ export class FigmaClient {
           const fPosition = item.position || 'auto';
           const fAbsoluteX = item.x !== undefined ? Number(item.x) : 0;
           const fAbsoluteY = item.y !== undefined ? Number(item.y) : 0;
+          // Edge-anchored absolute positioning (per directededges Absolute
+          // Positioning spec). top/right/bottom/left are edge-relative. If
+          // both opposite edges are given → STRETCH (and width/height are
+          // ignored, derived from parent). centerOffsetX/Y → CENTER constraint.
+          // Strings ending in "%" → SCALE constraint.
+          const fTop    = item.top    !== undefined ? item.top    : null;
+          const fRight  = item.right  !== undefined ? item.right  : null;
+          const fBottom = item.bottom !== undefined ? item.bottom : null;
+          const fLeft   = item.left   !== undefined ? item.left   : null;
+          const fCenterOffsetX = item.centerOffsetX !== undefined ? Number(item.centerOffsetX) : null;
+          const fCenterOffsetY = item.centerOffsetY !== undefined ? Number(item.centerOffsetY) : null;
+          const hasEdgeAttrs = fTop !== null || fRight !== null || fBottom !== null || fLeft !== null
+                              || fCenterOffsetX !== null || fCenterOffsetY !== null;
+          // If any edge attr is set, position defaults to absolute.
+          const effectivePosition = hasEdgeAttrs ? 'absolute' : fPosition;
 
           // Support w="fill" for nested frames (check BEFORE setting fWidth/fHeight)
           const fillWidth = item.w === 'fill';
@@ -1043,7 +1058,69 @@ export class FigmaClient {
         el${idx}.layoutSizingVertical = '${vSizing}';
         ${nestedChildren}
         ${fWrap && fFlex === 'row' && fWrapGap > 0 ? `el${idx}.counterAxisSpacing = ${fWrapGap};` : ''}
-        ${fPosition === 'absolute' ? `el${idx}.layoutPositioning = 'ABSOLUTE'; el${idx}.x = ${fAbsoluteX}; el${idx}.y = ${fAbsoluteY};` : ''}`;
+        ${effectivePosition === 'absolute' ? `
+          el${idx}.layoutPositioning = 'ABSOLUTE';
+          (function applyEdges() {
+            const pp = el${idx}.parent;
+            if (!pp || !('width' in pp)) {
+              el${idx}.x = ${fAbsoluteX}; el${idx}.y = ${fAbsoluteY};
+              return;
+            }
+            const pw = pp.width, ph = pp.height;
+            // Resolve edge values: numbers are px, strings ending in "%" are proportional
+            const resolve = (v, total) => {
+              if (v == null) return null;
+              if (typeof v === 'string' && v.endsWith('%')) return parseFloat(v) / 100 * total;
+              return Number(v);
+            };
+            const top    = ${JSON.stringify(fTop)};
+            const right  = ${JSON.stringify(fRight)};
+            const bottom = ${JSON.stringify(fBottom)};
+            const left   = ${JSON.stringify(fLeft)};
+            const coX    = ${JSON.stringify(fCenterOffsetX)};
+            const coY    = ${JSON.stringify(fCenterOffsetY)};
+            const c = { horizontal: el${idx}.constraints.horizontal, vertical: el${idx}.constraints.vertical };
+            const isScale = (v) => typeof v === 'string' && v.endsWith('%');
+            // Horizontal axis
+            if (left != null && right != null) {
+              const l = resolve(left, pw), r = resolve(right, pw);
+              el${idx}.x = l;
+              el${idx}.resize(Math.max(1, pw - l - r), el${idx}.height);
+              c.horizontal = (isScale(left) || isScale(right)) ? 'SCALE' : 'STRETCH';
+            } else if (right != null) {
+              const r = resolve(right, pw);
+              el${idx}.x = pw - el${idx}.width - r;
+              c.horizontal = 'MAX';
+            } else if (left != null) {
+              el${idx}.x = resolve(left, pw);
+              c.horizontal = 'MIN';
+            } else if (coX != null) {
+              el${idx}.x = (pw - el${idx}.width) / 2 + coX;
+              c.horizontal = 'CENTER';
+            } else if (${fAbsoluteX} !== 0 || ${fAbsoluteX === 0 && fTop === null && fBottom === null && fLeft === null && fRight === null && fCenterOffsetX === null}) {
+              el${idx}.x = ${fAbsoluteX};
+            }
+            // Vertical axis (same patterns)
+            if (top != null && bottom != null) {
+              const t = resolve(top, ph), b = resolve(bottom, ph);
+              el${idx}.y = t;
+              el${idx}.resize(el${idx}.width, Math.max(1, ph - t - b));
+              c.vertical = (isScale(top) || isScale(bottom)) ? 'SCALE' : 'STRETCH';
+            } else if (bottom != null) {
+              const b = resolve(bottom, ph);
+              el${idx}.y = ph - el${idx}.height - b;
+              c.vertical = 'MAX';
+            } else if (top != null) {
+              el${idx}.y = resolve(top, ph);
+              c.vertical = 'MIN';
+            } else if (coY != null) {
+              el${idx}.y = (ph - el${idx}.height) / 2 + coY;
+              c.vertical = 'CENTER';
+            } else if (${fAbsoluteY} !== 0 || ${fAbsoluteY === 0 && fTop === null && fBottom === null && fLeft === null && fRight === null && fCenterOffsetY === null}) {
+              el${idx}.y = ${fAbsoluteY};
+            }
+            el${idx}.constraints = c;
+          })();` : ''}`;
         } else if (item._type === 'rect') {
           // Rectangle element
           const rWidth = item.w || item.width || 100;

@@ -155,6 +155,54 @@ figma-cli tokens import-design-md /path/to/DESIGN.md --print-context
 
 ---
 
+## Absolute positioning, done right
+
+figma-cli implements the [directededges Absolute Positioning spec](https://directededges.github.io/specs/guides/absolute-positioning/) — designers and code platforms agree about edges and centers, but Figma's API forces you to convert manually between raw `x` / `y` and the `constraints` object. figma-cli does the math for you AND sets the matching constraint, so elements stay anchored when the parent resizes.
+
+**Pin existing nodes by edge:**
+
+```bash
+# Modal close button — 16px from top-right of its parent
+figma-cli pin top-right --offset-x 16 --offset-y 16 --node 5:42
+
+# Bottom-of-screen toast — stretched across parent, 24px from bottom
+figma-cli pin stretch-x --start 16 --end 16 --node 5:43
+figma-cli pin bottom --offset 24 --node 5:43
+
+# Center horizontally, scale to 25% / 25% margins
+figma-cli pin scale-x --start "25%" --end "25%" --node 5:44
+```
+
+Edges: `left`, `right`, `top`, `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, `center-x`, `center-y`, `stretch-x`, `stretch-y`, `scale-x`, `scale-y`.
+
+**Or use edge-relative attributes when rendering new elements:**
+
+```jsx
+figma-cli render '<Frame name="Modal" w={400} h={300} bg="#fff">
+  <Frame name="CloseBtn" position="absolute" top={12} right={12} w={24} h={24} />
+  <Frame name="Overlay" position="absolute" top={0} bottom={0} left={0} right={0} bg="#0008" />
+</Frame>'
+```
+
+`top` / `right` / `bottom` / `left` work like CSS. Opposite edges together = STRETCH. Percentage strings (`"25%"`) = SCALE. `centerOffsetX` / `centerOffsetY` = CENTER with offset.
+
+**Read it back, get spec-canonical JSON:**
+
+```bash
+figma-cli inspect 5:42 --json
+# {
+#   "id": "5:42", "name": "CloseBtn", "type": "FRAME",
+#   "absolutePositioning": {
+#     "position": "ABSOLUTE",
+#     "top": 12, "right": 16, "width": 24, "height": 24,
+#     "bottom": null, "start": null, "end": null,
+#     "centerHorizontalOffset": null, "centerVerticalOffset": null
+#   }
+# }
+```
+
+---
+
 ## Two connection modes
 
 Both modes have full feature parity. Pick based on permissions.
