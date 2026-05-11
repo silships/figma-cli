@@ -29,6 +29,89 @@ function unescapeShell(str) {
   return str.replace(/\\!/g, '!');
 }
 
+/**
+ * If the JSX is a Frame whose role is "lay out N similar items in a row/col",
+ * extract the children as independent JSX strings + the direction.
+ *
+ * Rationale: LLM callers regularly wrap "5 buttons" / "3 cards" in an outer
+ * `<Frame flex="row">` which then becomes a single rendered Frame in Figma
+ * instead of N standalone canvas items the user can move/use individually.
+ * `render-batch` is the right primitive for this. This function lets `render`
+ * detect the pattern at the CLI surface and reroute, so every caller (any LLM,
+ * shell, IDE) benefits without each one needing its own rewriter.
+ *
+ * Returns `{ direction, children }` if a split is appropriate, `null` otherwise.
+ *
+ * Split conditions:
+ *  - outer is a single <Frame ...> with a flex direction
+ *  - outer contains ≥ 2 direct <Frame> children (depth-aware)
+ *  - all direct children are <Frame>s (no orphan <Text>, <Icon>, etc.)
+ *  - bg/fill on the outer is fine; the wrapper visual is dropped on purpose
+ *    because the canonical pattern is "N standalone items", not "N items in a
+ *    bag". Callers who really want the wrapper can pass --keep-wrapper.
+ */
+function detectWrapperSplit(jsx) {
+  const text = jsx.trim();
+  const outerMatch = text.match(/^<Frame\b([^>]*)>([\s\S]*)<\/Frame>\s*$/);
+  if (!outerMatch) return null;
+  const outerAttrs = outerMatch[1];
+  const inner = outerMatch[2];
+  const flexMatch = outerAttrs.match(/flex\s*=\s*["']?(row|col|column|vertical|horizontal)["']?/);
+  if (!flexMatch) return null;
+  const direction = /col|vertical|column/.test(flexMatch[1]) ? 'col' : 'row';
+  // Walk inner with depth tracking, capture every depth-1 element
+  const children = [];
+  let depth = 0;
+  let chunkStart = -1;
+  let i = 0;
+  let nonFrameChildSeen = false;
+  while (i < inner.length) {
+    if (inner[i] === '<' && inner[i + 1] !== '/') {
+      // Identify tag name
+      const tagMatch = inner.slice(i).match(/^<([A-Za-z][A-Za-z0-9]*)\b/);
+      if (!tagMatch) { i++; continue; }
+      const tagName = tagMatch[1];
+      if (depth === 0) {
+        if (tagName !== 'Frame') { nonFrameChildSeen = true; return null; }
+        chunkStart = i;
+      }
+      // Self-closing tag like <Icon ... />
+      const selfClose = inner.slice(i).match(/^<[A-Za-z][^>]*\/>/);
+      if (selfClose) {
+        if (depth === 0) {
+          // Self-closing direct child — only allowed if it's a Frame
+          if (tagName !== 'Frame') { nonFrameChildSeen = true; return null; }
+          children.push(selfClose[0]);
+          chunkStart = -1;
+        }
+        i += selfClose[0].length;
+        continue;
+      }
+      // Regular opening tag
+      const open = inner.slice(i).match(/^<[A-Za-z][^>]*>/);
+      if (!open) { i++; continue; }
+      depth++;
+      i += open[0].length;
+      continue;
+    }
+    if (inner[i] === '<' && inner[i + 1] === '/') {
+      const close = inner.slice(i).match(/^<\/[A-Za-z]+>/);
+      if (!close) { i++; continue; }
+      depth--;
+      i += close[0].length;
+      if (depth === 0 && chunkStart !== -1) {
+        children.push(inner.slice(chunkStart, i));
+        chunkStart = -1;
+      }
+      continue;
+    }
+    i++;
+  }
+  if (nonFrameChildSeen) return null;
+  if (children.length < 2) return null;
+  return { direction, children };
+}
+
 // Patterns that aren't worth running as --query because they match Figma's
 // default auto-names — they'd select every unnamed node in the whole tree.
 const GENERIC_NAME_PATTERNS = new Set([
@@ -5270,9 +5353,30 @@ program
   .option('--no-smart-position', 'Disable auto-positioning')
   .option('--fast', 'Use fast daemon-based rendering (simple frames only)')
   .option('--as-component', 'After rendering, convert the resulting frame to a Figma component')
+  .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .action(async (rawJsx, options) => {
     const jsx = unescapeShell(rawJsx);
     await checkConnection();
+
+    // Auto-split: if the caller passed a layout-only outer Frame with N child
+    // Frames, treat it as render-batch. This is the canonical "N buttons / N
+    // cards" intent — independent items, not a single bagged Frame. Opt out
+    // with --keep-wrapper.
+    if (!options.keepWrapper) {
+      const split = detectWrapperSplit(jsx);
+      if (split) {
+        console.log(chalk.gray(`↳ outer flex wrapper detected — splitting to ${split.children.length} standalone items (--keep-wrapper to opt out)`));
+        const args = [
+          'render-batch',
+          JSON.stringify(split.children),
+          '--direction', split.direction,
+        ];
+        if (options.asComponent) args.push('--as-component');
+        await program.parseAsync(args, { from: 'user' });
+        return;
+      }
+    }
+
     try {
       // Helper: convert a rendered frame to a Figma component if --as-component was passed
       const maybeAsComponent = async (id) => {
