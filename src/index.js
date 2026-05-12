@@ -5702,8 +5702,64 @@ program
 // ============ ARRANGE ============
 
 program
+  .command('unstack')
+  .description('Find top-level nodes overlapping at the same position and spread them out. Keeps the first one in place, moves the rest. Non-destructive: leaves laid-out designs alone.')
+  .option('-g, --gap <n>', 'Gap between unstacked items', '100')
+  .option('--dry-run', 'Report what would move, do not modify anything')
+  .action(async (options) => {
+    await checkConnection();
+    const gap = parseInt(options.gap) || 100;
+    const dryRun = !!options.dryRun;
+    const code = `(async () => {
+      // Bucket every top-level node by its current (x,y) rounded to the nearest
+      // integer. Anything with >1 entry in a bucket is overlapping at that origin.
+      const top = figma.currentPage.children.filter(n =>
+        typeof n.x === 'number' && typeof n.y === 'number');
+      const buckets = new Map();
+      for (const n of top) {
+        const key = Math.round(n.x) + ',' + Math.round(n.y);
+        if (!buckets.has(key)) buckets.set(key, []);
+        buckets.get(key).push(n);
+      }
+      const moves = [];
+      let xCursor = -Infinity;
+      // Find the rightmost edge to start unstacking past existing layout
+      for (const n of top) {
+        xCursor = Math.max(xCursor, n.x + (n.width || 0));
+      }
+      if (!isFinite(xCursor)) xCursor = 0;
+      xCursor += ${gap};
+      for (const [key, group] of buckets) {
+        if (group.length < 2) continue;
+        // Keep the first one; move the rest to the right of everything else
+        for (let i = 1; i < group.length; i++) {
+          const n = group[i];
+          moves.push({ id: n.id, name: n.name, from: { x: n.x, y: n.y }, to: { x: xCursor, y: 0 } });
+          if (!${dryRun}) { n.x = xCursor; n.y = 0; }
+          xCursor += (n.width || 100) + ${gap};
+        }
+      }
+      return { moved: moves.length, moves: moves.slice(0, 12), totalOverlaps: moves.length, dryRun: ${dryRun} };
+    })()`;
+    try {
+      const r = await daemonExec('eval', { code });
+      if (!r || r.moved === 0) {
+        console.log(chalk.green('✓ No overlapping top-level nodes found'));
+        return;
+      }
+      const verb = r.dryRun ? 'Would move' : 'Moved';
+      console.log(chalk.green(`✓ ${verb} ${r.moved} overlapping node(s)`));
+      for (const m of r.moves) {
+        console.log(chalk.gray(`  ${m.name} (${m.id}): (${m.from.x},${m.from.y}) → (${m.to.x},${m.to.y})`));
+      }
+    } catch (e) {
+      handleEvalError(e);
+    }
+  });
+
+program
   .command('arrange')
-  .description('Arrange frames on canvas')
+  .description('Arrange ALL top-level frames on canvas — destructive, sorts alphabetically. For just-fix-overlaps use `unstack` instead.')
   .option('-g, --gap <n>', 'Gap between frames', '100')
   .option('-c, --cols <n>', 'Number of columns (0 = single row)', '0')
   .action((options) => {
