@@ -966,13 +966,22 @@ export class FigmaClient {
     const name = props.name || 'Frame';
     const rawWidth = props.w || props.width;
     const rawHeight = props.h || props.height;
-    const hasExplicitWidth = props.w !== undefined || props.width !== undefined;
-    const hasExplicitHeight = props.h !== undefined || props.height !== undefined;
-    // Support w="fill" / h="fill" for root frame
+    // Support w="fill" / w="hug" (and same for h) on the root frame. Both
+    // are sizing keywords — never interpolate raw into resize() or you get
+    // ReferenceError: 'fill' / 'hug' is not defined. (NB: don't shadow the
+    // existing `hugWidth/Height` from the `hug` prop below — that one is set
+    // via `hug="w"` / `hug="h"` / `hug="both"` and resolves the same flag.)
     const fillWidth = rawWidth === 'fill';
     const fillHeight = rawHeight === 'fill';
-    const width = fillWidth ? 100 : (rawWidth || 320);
-    const height = fillHeight ? 100 : (rawHeight || 200);
+    const wHug = rawWidth === 'hug';
+    const hHug = rawHeight === 'hug';
+    const isNumeric = v => v !== undefined && v !== 'fill' && v !== 'hug';
+    const numericWidth = isNumeric(rawWidth) ? rawWidth : undefined;
+    const numericHeight = isNumeric(rawHeight) ? rawHeight : undefined;
+    const hasExplicitWidth = numericWidth !== undefined;
+    const hasExplicitHeight = numericHeight !== undefined;
+    const width = numericWidth !== undefined ? numericWidth : 320;
+    const height = numericHeight !== undefined ? numericHeight : 200;
     const bg = props.bg || props.fill || null;
     const stroke = props.stroke || null;
     const strokeWidth = props.strokeWidth || 1;
@@ -995,9 +1004,10 @@ export class FigmaClient {
     const visible = props.visible === false || props.visible === 'false' ? false : null;
     const locked = props.locked === true || props.locked === 'true' ? true : null;
     // New: hug for auto-sizing (hug="both" | "w" | "h" | "width" | "height")
+    // OR the keyword form w="hug" / h="hug" set wHug/hHug above.
     const hug = props.hug || '';
-    const hugWidth = hug === 'both' || hug === 'w' || hug === 'width';
-    const hugHeight = hug === 'both' || hug === 'h' || hug === 'height';
+    const hugWidth = wHug || hug === 'both' || hug === 'w' || hug === 'width';
+    const hugHeight = hHug || hug === 'both' || hug === 'h' || hug === 'height';
     // New: wrap and wrapGap for horizontal layouts
     const wrap = props.wrap === true || props.wrap === 'true';
     const wrapGap = Number(props.wrapGap || props.counterAxisSpacing || 0);
