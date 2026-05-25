@@ -3534,7 +3534,7 @@ gradient
         `;
         const spinner = options.json ? null : ora('Applying gradient...').start();
         try {
-          const res = await figmaEval(code);
+          const res = await fastEval(code);
           const info = JSON.parse(res);
           if (spinner) spinner.succeed(`Applied to ${info.name} (${info.type})`);
           else if (!options.json) console.log(chalk.green(`  ✓ Applied to ${info.name}`));
@@ -3611,7 +3611,7 @@ gradient
       `;
       const spinner = options.json ? null : ora('Building blur-stack...').start();
       try {
-        const res = await figmaEval(code);
+        const res = await fastEval(code);
         const info = JSON.parse(res);
         if (spinner) spinner.succeed(`Mesh built on ${info.name} (${info.blobs} blobs, blur ${info.blur}px)`);
         else if (!options.json) console.log(chalk.green(`  ✓ Mesh built on ${info.name}`));
@@ -3710,7 +3710,7 @@ gradient
     `;
     const spinner = options.json ? null : ora('Building wallpaper...').start();
     try {
-      const res = await figmaEval(code);
+      const res = await fastEval(code);
       const info = JSON.parse(res);
       if (spinner) spinner.succeed(`${options.applyTo ? 'Built on' : 'Created'} ${info.name} (${info.w}x${info.h}, ${info.blobs} blobs)`);
       else if (!options.json) console.log(chalk.green(`  ✓ ${info.name} (${info.id})`));
