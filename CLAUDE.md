@@ -23,6 +23,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "apply image gradient to a frame" | `figma-cli gradient extract <image> --apply-to <nodeId>` |
 | "match this mesh / blossom / aurora background" | `figma-cli gradient extract <image> --mode mesh --apply-to <frameId>` |
 | "create a wallpaper / mesh gradient from these colors" | `figma-cli gradient mesh "#a,#b,#c" --size 1920x1080` |
+
+**Wallpaper palette tip:** for rich results pass **5-6 hue-diverse colors** (mix warm + cool + a bright accent), not shades of one color. Analogous palettes blend into a flat 2-tone wash. The command auto-adds a depth anchor + focal glow, and `--style auto` rotates compositions (scatter/diagonal/bands/drift/spotlight/corners). For N wallpapers, run it N times with different palettes + styles.
 | "show all variants" | `figma-cli combos` |
 | "create size variants" | `figma-cli sizes --base small` |
 | "make these frames a variant set" / "combine into variants" | `figma-cli variants from <ids> --property Size --values Small,Medium,Large --name Button` |

@@ -144,7 +144,7 @@
       "properties": {
         "colors": {
           "type": "string",
-          "description": "Comma-separated hex colors, 2 or more. Example: '#FF6B9D,#FEC860,#43E97B,#38A1DB,#A855F7'."
+          "description": "Comma-separated hex colors. For rich, vivid wallpapers use 5-6 colors spanning DIFFERENT hues (mix a warm, a cool, and a bright accent) — NOT shades of one color, which blend into a flat 2-tone wash. Example: '#fbff12,#ff206e,#41ead4,#0d00a4,#22223b'. The command auto-adds depth + a focal glow."
         },
         "style": {
           "type": "string",
