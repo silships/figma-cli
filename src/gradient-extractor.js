@@ -368,6 +368,17 @@ function normalizeHex(h) {
   return rgbToHex(hexToRgb(h));
 }
 
+const relLum = (rgb) => 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
+const clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+const darken = (rgb, amt) => rgb.map((c) => clamp255(c * (1 - amt)));
+const lighten = (rgb, amt) => rgb.map((c) => clamp255(c + (255 - c) * amt));
+const mixRgb = (a, b, t) => a.map((c, i) => clamp255(c + (b[i] - c) * t));
+// Push a color away from gray to keep accents vivid after blurring.
+const saturate = (rgb, amt) => {
+  const g = relLum(rgb);
+  return rgb.map((c) => clamp255(c + (c - g) * amt));
+};
+
 // Seeded RNG (mulberry32) so a wallpaper is reproducible with --seed but
 // varies run-to-run when no seed is given.
 function makeRng(seed) {
@@ -478,14 +489,53 @@ export function buildMeshFromColors(colors, opts = {}) {
   }
 
   const positions = meshPositions(hexes.length, style, rng);
+  const round = (v) => Math.round(v * 1000) / 1000;
   const blobs = positions.map((pos, i) => ({
-    fx: Math.round(pos.fx * 1000) / 1000,
-    fy: Math.round(pos.fy * 1000) / 1000,
-    r: Math.round(pos.r * 1000) / 1000,
+    fx: round(pos.fx),
+    fy: round(pos.fy),
+    r: round(pos.r),
     color: hexes[order[i % order.length]],
   }));
 
-  const base = opts.base ? normalizeHex(opts.base) : rgbToHex(averageColor(hexes.map(hexToRgb)));
+  // ── Depth + focal glow ──
+  // Analogous palettes (all similar lightness) otherwise blend into a flat
+  // 2-tone wash. Deriving a darker depth corner and a brighter focal glow
+  // from the palette itself adds tonal range and a light source — the thing
+  // that made the hand-crafted wallpapers feel alive — without introducing
+  // foreign hues.
+  const rgbs = hexes.map(hexToRgb);
+  const byLum = [...rgbs].sort((a, b) => relLum(a) - relLum(b));
+  const darkest = byLum[0];
+  const lightest = byLum[byLum.length - 1];
+  const accents = opts.accents === false;
+
+  if (!accents) {
+    // Depth: a darkened version of the darkest color, big, in a back corner
+    // (bottom z-order so the palette blobs sit on top of it).
+    const dc = rng() > 0.5 ? -0.12 : 1.12;
+    const dy = 1.12; // anchor depth low — reads as grounded shadow
+    blobs.unshift({
+      fx: round(dc), fy: round(dy), r: 0.7,
+      color: rgbToHex(darken(darkest, 0.35)),
+    });
+
+    // Glow: a brightened, slightly saturated version of the lightest color,
+    // smaller and sharper (less blur) so it reads as a focal light source.
+    // Placed in the upper half, off-center.
+    const gx = 0.3 + rng() * 0.4;
+    const gy = 0.06 + rng() * 0.22;
+    blobs.push({
+      fx: round(gx), fy: round(gy), r: 0.34,
+      color: rgbToHex(saturate(lighten(lightest, 0.4), 0.2)),
+      blurMul: 0.62,
+    });
+  }
+
+  // Base pulled toward the darkest color for depth (unless overridden).
+  const base = opts.base
+    ? normalizeHex(opts.base)
+    : rgbToHex(mixRgb(averageColor(rgbs), darkest, 0.22));
+
   return {
     mode: 'mesh',
     style,

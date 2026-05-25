@@ -3603,7 +3603,7 @@ gradient
             e.x = b.fx * W - R;
             e.y = b.fy * H - R;
             e.fills = [{ type:'SOLID', color: __hex(b.color), opacity:1, visible:true, blendMode:'NORMAL' }];
-            e.effects = [{ type:'LAYER_BLUR', radius: __blur, visible: true }];
+            e.effects = [{ type:'LAYER_BLUR', radius: Math.round(__blur * (b.blurMul || 1)), visible: true }];
             __target.appendChild(e);
           }
           return JSON.stringify({ name: __target.name, blobs: __blobs.length, blur: __blur });
@@ -3706,7 +3706,7 @@ gradient
           e.x = b.fx * W - R;
           e.y = b.fy * H - R;
           e.fills = [{ type:'SOLID', color: __hex(b.color), opacity:1, visible:true, blendMode:'NORMAL' }];
-          e.effects = [{ type:'LAYER_BLUR', radius: __blur, visible: true }];
+          e.effects = [{ type:'LAYER_BLUR', radius: Math.round(__blur * (b.blurMul || 1)), visible: true }];
           __target.appendChild(e);
         }
         figma.viewport.scrollAndZoomIntoView([__target]);
