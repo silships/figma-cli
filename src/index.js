@@ -3518,8 +3518,15 @@ gradient
         const code = `
           (async () => {
             await figma.loadAllPagesAsync();
-            const __gNode = await figma.getNodeByIdAsync(${JSON.stringify(options.applyTo)});
-            if (!__gNode) throw new Error('Node not found: ' + ${JSON.stringify(options.applyTo)});
+            const __wantId = ${JSON.stringify(options.applyTo)};
+            let __gNode;
+            if (/^selected$/i.test(__wantId)) {
+              __gNode = figma.currentPage.selection[0];
+              if (!__gNode) throw new Error('Nothing selected in Figma');
+            } else {
+              __gNode = await figma.getNodeByIdAsync(__wantId);
+              if (!__gNode) throw new Error('Node not found: ' + __wantId);
+            }
             if (!('fills' in __gNode)) throw new Error('Node does not support fills: ' + __gNode.type);
             __gNode.fills = [${JSON.stringify(paint)}];
             return JSON.stringify({ name: __gNode.name, type: __gNode.type });
@@ -3569,8 +3576,15 @@ gradient
       const code = `
         (async () => {
           await figma.loadAllPagesAsync();
-          const __target = await figma.getNodeByIdAsync(${JSON.stringify(options.applyTo)});
-          if (!__target) throw new Error('Node not found: ' + ${JSON.stringify(options.applyTo)});
+          const __wantId = ${JSON.stringify(options.applyTo)};
+          let __target;
+          if (/^selected$/i.test(__wantId)) {
+            __target = figma.currentPage.selection[0];
+            if (!__target) throw new Error('Nothing selected in Figma');
+          } else {
+            __target = await figma.getNodeByIdAsync(__wantId);
+            if (!__target) throw new Error('Node not found: ' + __wantId);
+          }
           if (__target.type !== 'FRAME') throw new Error('Mesh mode requires a FRAME target; got ' + __target.type);
           const W = __target.width, H = __target.height;
           const D = Math.min(W, H);
@@ -3656,8 +3670,14 @@ gradient
         const __hex = (h) => { h = h.replace('#', ''); return { r: parseInt(h.slice(0,2),16)/255, g: parseInt(h.slice(2,4),16)/255, b: parseInt(h.slice(4,6),16)/255 }; };
         let __target;
         ${options.applyTo ? `
-        __target = await figma.getNodeByIdAsync(${JSON.stringify(options.applyTo)});
-        if (!__target) throw new Error('Node not found: ' + ${JSON.stringify(options.applyTo)});
+        const __wantId = ${JSON.stringify(options.applyTo)};
+        if (/^selected$/i.test(__wantId)) {
+          __target = figma.currentPage.selection[0];
+          if (!__target) throw new Error('Nothing selected in Figma');
+        } else {
+          __target = await figma.getNodeByIdAsync(__wantId);
+          if (!__target) throw new Error('Node not found: ' + __wantId);
+        }
         if (__target.type !== 'FRAME') throw new Error('Mesh requires a FRAME target; got ' + __target.type);
         for (const c of [...__target.children]) c.remove();
         ` : `
