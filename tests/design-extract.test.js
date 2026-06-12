@@ -124,3 +124,36 @@ test('nameRadii produces sm/md/lg names sorted by value', () => {
   assert.equal(named['radius-lg'], 12);
   assert.equal(named['radius-full'], 9999);
 });
+
+import { formatTree, dedupSiblings, variantMatrixTable } from '../src/design-extract.js';
+
+test('formatTree emits the plugin tree notation', () => {
+  const node = {
+    t: 'FRAME', n: 'Button', w: 71, h: 32, lm: 'HORIZONTAL', gap: 8, pad: [6, 12, 6, 12],
+    kids: [{ t: 'TEXT', n: 'Label', w: 47, h: 20, txt: { chars: 'Button' } }],
+  };
+  const lines = formatTree(node, 0);
+  assert.match(lines[0], /\*\*Button\*\* · `FRAME` · 71×32 · horizontal row, gap 8px, padding 6\/12\/6\/12px · 1 children/);
+  assert.match(lines[1], /^ {2}- \*\*Label\*\* · `TEXT` · 47×20 · “Button”/);
+});
+
+test('formatTree shows explicit omission counts (never silent)', () => {
+  const node = { t: 'FRAME', n: 'Deep', w: 10, h: 10, more: 7 };
+  const lines = formatTree(node, 0);
+  assert.match(lines.join('\n'), /…and 7 more/);
+});
+
+test('dedupSiblings collapses identical siblings to one entry with ×N', () => {
+  const btn = (name) => ({ t: 'INSTANCE', n: name, w: 71, h: 32, mc: 'Button' });
+  const kids = [btn('Button'), btn('Button'), btn('Button'), btn('Other')];
+  const deduped = dedupSiblings(kids);
+  assert.equal(deduped.length, 2);
+  assert.equal(deduped[0].repeat, 3);
+  assert.equal(deduped[1].n, 'Other');
+});
+
+test('variantMatrixTable renders a property/values table', () => {
+  const md = variantMatrixTable({ trigger: { values: ['icon-button', 'button'] }, open: { values: ['true', 'false'] } });
+  assert.match(md, /\| trigger \| icon-button, button \|/);
+  assert.match(md, /\| open \| true, false \|/);
+});

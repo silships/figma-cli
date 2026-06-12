@@ -263,3 +263,62 @@ export function nameRadii(radii) {
   }
   return out;
 }
+
+// ============ Structure formatting ============
+
+/** Signature for dedup: structural identity key (excludes accumulated repeat count). */
+const sibKey = (n) => JSON.stringify({ ...n, repeat: undefined });
+
+/** Collapse runs of structurally identical siblings into one node + repeat count. */
+export function dedupSiblings(kids) {
+  const out = [];
+  for (const k of kids) {
+    const prev = out[out.length - 1];
+    if (prev && sibKey(prev) === sibKey(k)) prev.repeat = (prev.repeat || 1) + 1;
+    else out.push({ ...k });
+  }
+  return out;
+}
+
+const layoutDesc = (n) => {
+  if (!n.lm) return null;
+  const parts = [n.lm === 'HORIZONTAL' ? 'horizontal row' : 'vertical stack'];
+  if (n.gap) parts.push(`gap ${n.gap}px`);
+  if (n.pad) {
+    const [t, r, b, l] = n.pad;
+    parts.push(t === r && r === b && b === l ? `padding ${t}px` : `padding ${t}/${r}/${b}/${l}px`);
+  }
+  return parts.join(', ');
+};
+
+/**
+ * One node → markdown bullet lines (plugin notation):
+ * `- **Name** · \`TYPE\` · WxH · horizontal row, gap 8px, padding … · N children`
+ * Text nodes append `· "chars"`. Repeats append `· ×N`. Omissions are always
+ * explicit: `_…and N more_`.
+ */
+export function formatTree(node, depth) {
+  const indent = '  '.repeat(depth);
+  const bits = [`**${node.n}**`, `\`${node.t}\``];
+  if (node.w != null) bits.push(`${node.w}×${node.h}`);
+  const ld = layoutDesc(node);
+  if (ld) bits.push(ld);
+  if (node.kids?.length || node.kidCount) bits.push(`${node.kidCount ?? node.kids.length} children`);
+  if (node.txt) bits.push(`“${node.txt.chars}”`);
+  if (node.mc) bits.push(`instance of ${node.mc}`);
+  if (node.repeat) bits.push(`×${node.repeat}`);
+  const lines = [`${indent}- ${bits.join(' · ')}`];
+  if (node.kids) {
+    for (const k of dedupSiblings(node.kids)) lines.push(...formatTree(k, depth + 1));
+  }
+  if (node.more) lines.push(`${'  '.repeat(depth + 1)}- _…and ${node.more} more_`);
+  return lines;
+}
+
+/** variantGroupProperties → markdown property/values table. */
+export function variantMatrixTable(props) {
+  const rows = Object.entries(props || {}).map(([prop, def]) =>
+    `| ${prop} | ${(def.values || []).join(', ')} |`);
+  if (!rows.length) return '_no variant properties_';
+  return ['| Property | Values |', '|---|---|', ...rows].join('\n');
+}
