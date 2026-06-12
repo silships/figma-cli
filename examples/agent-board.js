@@ -38,20 +38,20 @@ const TASKS = [
   {
     id: 'core-tokens', col: 'todo', tag: 'bg tokens · 10:1625',
     title: 'Ship 6 core tokens, or all 19?',
-    desc: 'Carmen + Sofia: mark 6 as core, hide the rest. Devs should not scan 19 surfaces for a card.',
-    assignee: 'Carmen',
+    desc: 'Sil + Philipp: mark 6 as core, hide the rest. Devs should not scan 19 surfaces for a card.',
+    assignee: 'Sil',
   },
   {
     id: 'disabled-states', col: 'todo', tag: 'fg tokens · 10:1645',
     title: 'Are disabled states covered?',
     desc: 'No fg/disabled token defined, so it will get hardcoded per component. Define one and show it on a sample button.',
-    assignee: 'Sofia',
+    assignee: 'Philipp',
   },
   {
     id: 'naming', col: 'todo', tag: 'naming · 10:1610',
     title: 'Align Figma names to the codebase',
     desc: 'Code is bg-surface-default, Figma says background/surface. Pick one convention before handoff.',
-    assignee: 'Jonas',
+    assignee: 'Andressa',
   },
   {
     id: 'contrast', col: 'todo', tag: 'contrast · 10:1687',
@@ -63,13 +63,13 @@ const TASKS = [
     id: 'button-variants', col: 'inprogress', tag: 'components · 10:1701',
     title: 'Primary button: hover + disabled variants',
     desc: 'Create the primary button with default, hover and disabled variants using the shadcn variables.',
-    assignee: 'Carmen',
+    assignee: 'Sil',
   },
   {
     id: 'purple-lock', col: 'done', tag: 'color · 10:1480',
     title: 'Base purple locked to #36278B',
     desc: 'Debated 9179EA vs 36278B. Chose the darker one for AA contrast on white.',
-    assignee: 'Sofia',
+    assignee: 'Philipp',
   },
 ];
 
