@@ -90,6 +90,45 @@ figma-ds-cli tokens spacing
 figma-ds-cli tokens radii
 ```
 
+## Design Export (extract)
+
+Scan the open Figma file and write a DESIGN.md — tokens, structure, component
+variant matrices. Output is readable by `figma-cli import` (full roundtrip).
+Verified against Primer Web (Community): 67 pages, ~124k nodes, one daemon
+call per page. Component sets become variant-property matrices.
+
+```bash
+# Export the full file — all pages, all 11 sections (default output: ./DESIGN.md)
+figma-cli extract
+
+# Custom output path
+figma-cli extract my-system.md
+
+# Only specific pages (case-insensitive substring match)
+figma-cli extract --pages "Button,ActionMenu"
+
+# Only the currently selected nodes
+figma-cli extract --selection
+
+# Only specific sections (comma list)
+# Sections: identity, structure, color, typography, spacing,
+#           depth, components, states, rules, extending, tokens
+figma-cli extract --sections tokens
+figma-cli extract --sections color,typography,tokens
+
+# Also write full per-page trees to DESIGN-structure/ alongside the main file
+figma-cli extract --split
+
+# Flags can combine
+figma-cli extract output.md --pages "Icons" --sections structure,tokens --split
+```
+
+Re-import the output at any time:
+
+```bash
+figma-cli import DESIGN.md
+```
+
 ## Variables
 
 ```bash

@@ -23,6 +23,10 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "apply image gradient to a frame" | `figma-cli gradient extract <image> --apply-to <nodeId>` |
 | "match this mesh / blossom / aurora background" | `figma-cli gradient extract <image> --mode mesh --apply-to <frameId>` |
 | "create a wallpaper / mesh gradient from these colors" | `figma-cli gradient mesh "#a,#b,#c" --size 1920x1080` |
+| "export the design system as markdown" / "create a DESIGN.md" | `figma-cli extract` |
+| "export only the tokens" | `figma-cli extract --sections tokens` |
+| "extract/document the X page" | `figma-cli extract --pages "X"` |
+| "extract what I selected" | `figma-cli extract --selection` |
 
 **Wallpaper palette tip:** for rich results pass **5-6 hue-diverse colors** (mix warm + cool + a bright accent), not shades of one color. Analogous palettes blend into a flat 2-tone wash. The command auto-adds a depth anchor + focal glow, and `--style auto` rotates compositions (scatter/diagonal/bands/drift/spotlight/corners). For N wallpapers, run it N times with different palettes + styles. Add `--grain` for subtle film-grain NOISE or `--texture` for paper grain over the wallpaper.
 
@@ -174,6 +178,22 @@ figma-cli var delete-all -c "primitives"  # Only specific collection
 - `tokens preset shadcn` = Full system (primitives + semantic with Light/Dark mode)
 - `tokens tailwind` = Just the Tailwind color palette (primitives only)
 - `var list` only SHOWS variables. Use `tokens` commands to CREATE them.
+
+---
+
+## DESIGN.md Export (extract)
+
+`figma-cli extract [output.md]` scans the open file and writes a DESIGN.md
+(same 11-section format the importer reads — full roundtrip).
+
+- Default = ALL pages, ALL sections. Use `--pages "Button,ActionMenu"` (substring
+  match) or `--selection` to scope; `--sections tokens` for tokens-only.
+- `--split` additionally writes full per-page trees to `DESIGN-structure/`.
+- Users speak naturally ("export the design system as markdown") — map intent
+  to flags, never make them memorize commands.
+- After extraction, summarize what was captured (pages, token counts, skipped
+  pages). Don't dump the file contents into chat.
+- Re-import with `figma-cli import <file>`.
 
 ---
 
