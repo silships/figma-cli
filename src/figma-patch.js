@@ -13,14 +13,11 @@ import {
   getFigmaCommand as platformGetFigmaCommand
 } from './platform.js';
 
-// Fixed CDP port (figma-use has 9222 hardcoded)
-const CDP_PORT = 9222;
+const DEFAULT_CDP_PORT = 9222;
 
-/**
- * Get the CDP port (always 9222 for figma-use compatibility)
- */
 export function getCdpPort() {
-  return CDP_PORT;
+  const envPort = parseInt(process.env.FIGMA_PORT, 10);
+  return (envPort > 0 && envPort < 65536) ? envPort : DEFAULT_CDP_PORT;
 }
 
 // The string that blocks remote debugging
