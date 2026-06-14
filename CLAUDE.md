@@ -208,6 +208,30 @@ figma-cli var delete-all -c "primitives"  # Only specific collection
   pages). Don't dump the file contents into chat.
 - Re-import with `figma-cli import <file>`.
 
+## Recreating components from a DESIGN.md (HARD RULE)
+
+When asked to rebuild/recreate a component that exists in an extracted
+DESIGN.md, **do NOT read the structure markdown by hand** (it's huge and burns
+tokens). Use `spec`, which reads the md in code and returns only the
+authoritative numbers:
+
+```bash
+figma-cli spec ButtonGroup            # axes + values + sample size (compact)
+figma-cli spec ButtonGroup --check <nodeId>   # ENFORCE after building (exit 1 on mismatch)
+```
+
+- `spec <name>` prints the variant axes, their values, and a sample size. Build
+  EXACTLY to those axes — if the spec lists `Variant × Size = 6 variants`, build
+  a 6-variant Component Set, never a single node.
+- After building, ALWAYS run `spec <name> --check <nodeId>`. It measures the
+  built node and enforces three hard rules: (1) a multi-variant component must
+  be a `COMPONENT_SET`, (2) the variant property names must match the spec axes,
+  (3) the sample variant's HEIGHT must match (±2px) — this is what catches the
+  "zu hoch" inflation bug. Width is content-hug and not enforced.
+- The check exits non-zero on violation. Treat a non-zero exit as "not done" —
+  fix the build and re-check. This keeps fidelity high at near-zero token cost
+  (the CLI does the reading and comparing, you only see a short verdict).
+
 ## Code Import Sources
 
 `figma-cli import` accepts more than DESIGN.md. Every source converts to a

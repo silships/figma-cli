@@ -23,6 +23,7 @@ import './commands/figjam.js';
 import './commands/variants.js';
 import './commands/misc.js';
 import './commands/extract.js';
+import './commands/spec.js';
 import { program } from './lib/cli-core.js';
 
 program.parse();
