@@ -163,3 +163,70 @@ Sample variant structure:
     assert.ok(!pass, 'a FRAME built as TEXT is a real failure');
   });
 });
+
+describe('content lists (×N repeats)', () => {
+  const md = `## 6. Components
+
+### Menu
+
+Page: Menus · 2 variants
+
+| Property | Values |
+|---|---|
+| kind | a, b |
+
+Sample variant structure:
+
+- **kind=a** · \`COMPONENT\` · 240×400 · vertical stack · 5 children
+  - **Heading** · \`INSTANCE\` · 240×34 · horizontal row, gap 8px · instance of Heading
+  - **Item** · \`INSTANCE\` · 240×32 · horizontal row, gap 8px, padding 6/8/6/8px · instance of Item · ×6
+  - **Divider** · \`INSTANCE\` · 240×16 · vertical stack, gap 8px · instance of Divider
+  - **Item** · \`INSTANCE\` · 240×32 · horizontal row, gap 8px, padding 6/8/6/8px · instance of Item · ×3
+`;
+  const spec = findComponentSpec(md, 'Menu');
+
+  it('parses the ×N repeat marker', () => {
+    const item = spec.sample.children.find(c => c.name === 'Item');
+    assert.strictEqual(item.repeat, 6);
+  });
+
+  it('a shorter list with the same item types still PASSES (count/height advisory)', () => {
+    const built = {
+      type: 'COMPONENT_SET', variantProps: ['kind'], variants: [{ name: 'kind=a', w: 240, h: 150 }],
+      sampleTree: { name: 'kind=a', type: 'COMPONENT', w: 240, h: 150, lm: 'VERTICAL', children: [
+        { name: 'Heading', type: 'FRAME', w: 240, h: 34, lm: 'HORIZONTAL', gap: 8 },
+        { name: 'Item', type: 'FRAME', w: 240, h: 32, lm: 'HORIZONTAL', gap: 8, pad: [6, 8, 6, 8] },
+        { name: 'Item', type: 'FRAME', w: 240, h: 32, lm: 'HORIZONTAL', gap: 8, pad: [6, 8, 6, 8] },
+      ] },
+    };
+    const { pass, rules } = checkConformance(spec, built);
+    assert.ok(pass, JSON.stringify(rules.filter(r => !r.ok && !r.warn)));
+    assert.ok(rules.some(r => r.warn && /content list/.test(r.msg)));
+  });
+
+  it('wrong padding on an INSTANCE item is an advisory hint (instance the component)', () => {
+    // Item is an INSTANCE in the spec, so its internal padding is advisory —
+    // the right fix is to instance the sub-component, which gets it right.
+    const built = {
+      type: 'COMPONENT_SET', variantProps: ['kind'], variants: [{ name: 'kind=a', w: 240, h: 150 }],
+      sampleTree: { name: 'kind=a', type: 'COMPONENT', w: 240, h: 150, lm: 'VERTICAL', children: [
+        { name: 'Heading', type: 'FRAME', w: 240, h: 34, lm: 'HORIZONTAL', gap: 8 },
+        { name: 'Item', type: 'FRAME', w: 240, h: 32, lm: 'HORIZONTAL', gap: 8, pad: [12, 12, 12, 12] },
+      ] },
+    };
+    const { pass, rules } = checkConformance(spec, built);
+    assert.ok(pass, 'instance-internal padding is a hint, not a hard fail');
+    assert.ok(rules.some(r => r.warn && /padding/.test(r.msg) && /instance internal/.test(r.msg)));
+  });
+
+  it('a missing item TYPE (not built at all) is flagged', () => {
+    const built = {
+      type: 'COMPONENT_SET', variantProps: ['kind'], variants: [{ name: 'kind=a', w: 240, h: 80 }],
+      sampleTree: { name: 'kind=a', type: 'COMPONENT', w: 240, h: 80, lm: 'VERTICAL', children: [
+        { name: 'Item', type: 'FRAME', w: 240, h: 32, lm: 'HORIZONTAL', gap: 8, pad: [6, 8, 6, 8] },
+      ] },  // no Heading, no Divider built
+    };
+    const { rules } = checkConformance(spec, built);
+    assert.ok(rules.some(r => /no matching item built/.test(r.msg)), 'should note the Heading/Divider item types were not built');
+  });
+});

@@ -33,6 +33,11 @@ function parseBullet(line) {
     const dim = seg.match(/^(\d+)×(\d+)$/);
     if (dim) { node.w = Number(dim[1]); node.h = Number(dim[2]); continue; }
     if (/horizontal row|vertical stack/.test(seg)) Object.assign(node, parseLayoutMeta(seg));
+    // "· ×N" marks a deduped run of repeated siblings → this is content, not a
+    // fixed structure (a list/menu/table body). Recorded so the checker relaxes
+    // child-count/order for the container that holds it.
+    const rep = seg.match(/^×(\d+)$/);
+    if (rep) node.repeat = Number(rep[1]);
     // "N children", text, "instance of …" are not enforced structurally here.
   }
   return { depth, node };
@@ -160,39 +165,47 @@ function compareNode(specN, builtN, path, rules, tol) {
     rules.push({ ok: false, msg: `type[${at}]: spec wants ${specN.type} (${typeClass(specN.type)}), built ${builtN.type} (${typeClass(builtN.type)})` });
   }
 
-  // height — enforced, unless the spec's own height is non-physical (then hint).
+  // Is this a content container (a list/menu/table body)? The extractor marks
+  // repeated runs with ×N, so any repeated child means the count/length is
+  // content-driven — height and child-count become advisory and children are
+  // matched by name (pattern), not by index.
+  const specKidsAll = (specN.lm ? specN.children : null) || [];
+  const isContentList = specKidsAll.some(k => k.repeat);
+
+  // height — enforced, unless the spec's height is non-physical OR this is a
+  // content list (its length depends on how many rows you put in).
   if (specN.h != null) {
     const dh = Math.abs((builtN.h ?? 0) - specN.h);
-    if (nonPhysicalHeight(specN)) {
+    if (isContentList) {
+      rules.push({ ok: dh <= tol, warn: true, msg: `height[${at}]: ${builtN.h}px (content list — length is content-driven, not enforced)` });
+    } else if (nonPhysicalHeight(specN)) {
       rules.push({ ok: dh <= tol, warn: true, msg: `height[${at}]: spec ${specN.h}px is non-physical (children need more) — built ${builtN.h}px, not enforced` });
     } else {
       rules.push({ ok: dh <= tol, msg: dh <= tol ? `height[${at}]: ${builtN.h}px` : `height[${at}]: built ${builtN.h}px, spec ${specN.h}px (off ${dh}px)` });
     }
   }
 
+  // Internal layout props (layout/gap/padding) of a spec INSTANCE describe the
+  // SUB-COMPONENT's own internals — a rebuild that uses a plain frame instead of
+  // instancing it legitimately differs, so these are advisory for instances.
+  const internalsAdvisory = specN.type === 'INSTANCE';
+
   // layout direction
   if (specN.lm) {
-    rules.push({
-      ok: builtN.lm === specN.lm,
-      msg: builtN.lm === specN.lm ? `layout[${at}]: ${specN.lm}` : `layout[${at}]: spec ${specN.lm}, built ${builtN.lm || 'NONE'}`,
-    });
+    const ok = builtN.lm === specN.lm;
+    rules.push({ ok, warn: internalsAdvisory && !ok, msg: ok ? `layout[${at}]: ${specN.lm}` : `layout[${at}]: spec ${specN.lm}, built ${builtN.lm || 'NONE'}${internalsAdvisory ? ' (instance internal)' : ''}` });
   }
 
   // gap
   if (specN.gap != null) {
-    rules.push({
-      ok: (builtN.gap ?? 0) === specN.gap,
-      msg: (builtN.gap ?? 0) === specN.gap ? `gap[${at}]: ${specN.gap}px` : `gap[${at}]: spec ${specN.gap}px, built ${builtN.gap ?? 0}px`,
-    });
+    const ok = (builtN.gap ?? 0) === specN.gap;
+    rules.push({ ok, warn: internalsAdvisory && !ok, msg: ok ? `gap[${at}]: ${specN.gap}px` : `gap[${at}]: spec ${specN.gap}px, built ${builtN.gap ?? 0}px${internalsAdvisory ? ' (instance internal)' : ''}` });
   }
 
   // padding (T/R/B/L)
   if (specN.pad) {
     const ok = sameArr(specN.pad, builtN.pad);
-    rules.push({
-      ok,
-      msg: ok ? `padding[${at}]: ${specN.pad.join('/')}` : `padding[${at}]: spec ${specN.pad.join('/')}, built ${(builtN.pad || []).join('/') || 'none'}`,
-    });
+    rules.push({ ok, warn: internalsAdvisory && !ok, msg: ok ? `padding[${at}]: ${specN.pad.join('/')}` : `padding[${at}]: spec ${specN.pad.join('/')}, built ${(builtN.pad || []).join('/') || 'none'}${internalsAdvisory ? ' (instance internal)' : ''}` });
   }
 
   // children: only enforce structure UNDER an auto-layout node (one the md
@@ -200,16 +213,30 @@ function compareNode(specN, builtN, path, rules, tol) {
   // BOOLEAN_OPERATION / ELLIPSE tree) carry no layout, so we treat them as
   // opaque and check size only — a clean ellipse-arc rebuild shouldn't have to
   // reproduce the designer's boolean tree.
-  const specKids = (specN.lm ? specN.children : null) || [];
+  const specKids = specKidsAll;
   if (specKids.length) {
     const builtKids = builtN.children || [];
-    const ok = builtKids.length === specKids.length;
-    rules.push({
-      ok,
-      msg: ok ? `children[${at}]: ${specKids.length}` : `children[${at}]: spec ${specKids.length}, built ${builtKids.length}`,
-    });
-    const n = Math.min(specKids.length, builtKids.length);
-    for (let i = 0; i < n; i++) compareNode(specKids[i], builtKids[i], `${at} › ${specKids[i].name}`, rules, tol);
+    if (isContentList) {
+      // Content list: don't enforce exact count/order. Verify the ITEM PATTERN
+      // instead — each distinct spec item type must have a matching built item
+      // (by name) whose layout/padding/gap conform.
+      rules.push({ ok: true, warn: true, msg: `children[${at}]: ${builtKids.length} (content list — ${specKids.length} item types in spec, count not enforced)` });
+      const seen = new Set();
+      for (const sk of specKids) {
+        const key = normName(sk.name);
+        if (seen.has(key)) continue;   // one check per distinct item type
+        seen.add(key);
+        const match = builtKids.find(bk => normName(bk.name) === key)
+          || builtKids.find(bk => typeClass(bk.type) === typeClass(sk.type) && bk.lm === sk.lm);
+        if (match) compareNode(sk, match, `${at} › ${sk.name}`, rules, tol);
+        else rules.push({ ok: false, warn: true, msg: `item[${at} › ${sk.name}]: no matching item built (pattern check skipped)` });
+      }
+    } else {
+      const ok = builtKids.length === specKids.length;
+      rules.push({ ok, msg: ok ? `children[${at}]: ${specKids.length}` : `children[${at}]: spec ${specKids.length}, built ${builtKids.length}` });
+      const n = Math.min(specKids.length, builtKids.length);
+      for (let i = 0; i < n; i++) compareNode(specKids[i], builtKids[i], `${at} › ${specKids[i].name}`, rules, tol);
+    }
   }
 }
 
