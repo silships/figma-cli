@@ -159,7 +159,7 @@ export function unpatchFigma() {
 /**
  * Get the command to start Figma with remote debugging
  */
-export function getFigmaCommand(port = 9222) {
+export function getFigmaCommand(port = getCdpPort()) {
   return platformGetFigmaCommand(port);
 }
 
