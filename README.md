@@ -32,13 +32,15 @@ It works with real, editable Figma , actual frames, components, variants and var
 
 ---
 
-## Setup , let Claude do it for you
+## Setup , let your AI do it for you
 
-You don't install this by hand. You get **Claude Code**, point it at this project, and ask it to set everything up. Here's the whole thing:
+You don't install this by hand. You use an **AI coding assistant** , **Claude Code** (recommended, what most people use) or **Cursor** , point it at this project, and ask it to set everything up.
+
+> **Using Cursor?** Jump to [Using Cursor](#using-cursor) for the one-line setup. The steps below are for Claude Code; everything the CLI does is identical in both.
 
 ### 1. Have these ready
 - **Figma Desktop** , installed and open ([download](https://www.figma.com/downloads/)).
-- **Claude Code** , Anthropic's AI assistant for your computer. [Install it here](https://docs.claude.com/en/docs/claude-code) (one command, takes a minute).
+- **Claude Code** , Anthropic's AI assistant for your computer. [Install it here](https://docs.claude.com/en/docs/claude-code) (one command, takes a minute). *(Or use Cursor , see below.)*
 
 ### 2. Get this project onto your computer
 Don't know git? No problem. Open Claude Code anywhere and paste:
@@ -62,6 +64,36 @@ Now describe what you want:
 > "Add my brand colors, then create a primary button and a secondary button."
 
 Claude builds it in Figma instantly.
+
+---
+
+## Using Cursor
+
+Prefer **Cursor**? It works exactly the same , the CLI controls Figma Desktop, not your editor, so nothing about it is Claude-only. Most people use Claude Code, but if Cursor is your tool, here's the whole setup.
+
+### 1. Have these ready
+- **Figma Desktop** , installed and open ([download](https://www.figma.com/downloads/)).
+- **Cursor** , [download here](https://cursor.com).
+
+### 2. Tell Cursor to install it , one line
+Open Cursor in any folder, open the chat (the Agent), and paste:
+
+> **"Install github.com/silships/figma-cli and connect it to my Figma."**
+
+Cursor downloads the project, installs it, sets up its own rules so it knows how to drive it, and connects to your open Figma Desktop. You watch , you don't type commands.
+
+> Under the hood Cursor runs one extra command for itself , `figma-cli init-agent` , which drops a small `.cursor/rules/figma-cli.mdc` into your project. That's the file that teaches Cursor's Agent the rules (use real variables, wrap text properly, build N items as N components, etc.). You never edit it.
+
+When it says it's connected, you're done. ✅
+
+### 3. Start designing , just talk
+Same as Claude Code , describe what you want:
+
+> "Add my brand colors, then create a primary button and a secondary button."
+
+Cursor builds it in Figma instantly.
+
+**Already set up in a project and just want the Cursor rules?** Run `figma-cli init-agent` yourself , it writes the Cursor rules **and** an `AGENTS.md` (which Claude Code and Cursor both read), without touching any existing `CLAUDE.md`.
 
 ---
 
@@ -199,11 +231,13 @@ Prefer to keep everything on your machine? figma-ds-cli also works with **local 
 - Inline **annotations** for usage rules and token references
 - Recreate a live webpage in Figma from a URL
 
-**🤖 Built for AI (5)**
+**🤖 Built for AI (6)**
+- Works with **Claude Code** or **Cursor** , one `figma-cli init-agent` sets up the rules for both
 - Works with **Claude**, or local LLMs via **LM Studio / Ollama** (fully offline)
 - Ships the entire **Figma Plugin API spec offline** so the AI can self-discover
 - Self-corrects when a command needs a different approach
-- Screenshot-based verification so the AI checks its own work
+- Screenshot-based verification (`verify --measure`) so the AI checks its own work by numbers
+- Enforces a **DESIGN.md spec** when recreating components (`spec --check`) , no eyeballing
 - Optional **voice control** (macOS): "create three pricing cards" out loud
 
 **🔒 No strings (2)**
