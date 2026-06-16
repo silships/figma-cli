@@ -33,6 +33,8 @@ Claude does the rest. Figma updates in real time, in front of you.
 
 It works with real, editable Figma , actual frames, components, variants and variables , not a flat image. And it runs **locally**: no API key, nothing sent to a cloud service.
 
+**No rate limits.** MCP-based tools talk to Figma through the REST API, which is rate-limited. Figma's official MCP server caps read tool calls by seat: just 6/month on a View/Collab seat, and 200–600/day (10–20/min) even on a paid Dev/Full seat ([source](https://developers.figma.com/docs/figma-mcp-server/rate-limits-access)). AI agents burn through those fast. figma-cli connects to Figma Desktop directly over CDP and never calls the API, so there's nothing to rate-limit. No token, no 429, works offline.
+
 ---
 
 ## Setup , let your AI do it for you
