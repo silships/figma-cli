@@ -205,9 +205,12 @@ The reverse also works. Open any Figma file , yours, a client's, a Community fil
 
 figma-ds-cli scans **every page** (no truncation, even on 100k+ node files) and writes a `DESIGN.md` with the full token map: colors ranked by usage, the type scale, spacing, radii, shadows, plus a variant matrix for every component set (e.g. Button: variant × size × state, with all values). The file round-trips , `figma-cli import` reads it back into variables in any other file.
 
+Components aren't just documented, they're addressable: `figma-cli spec "Button"` reads the markdown in code (zero model tokens) and returns just that one component's spec plus its reuse handle, so an agent pulls in exactly what it needs on demand instead of loading the whole file.
+
 What it's for:
 
 - **Feed your design system to AI tools** , Claude, Cursor, Copilot read DESIGN.md and build UI that actually matches your Figma file
+- **Reuse, don't rebuild** , every component in the exported DESIGN.md carries a *reuse handle*. Ask for a component that already exists and the AI drops a real instance of it (`figma-cli instantiate "Button"`) instead of cloning a one-off copy, so your file stays consistent with the source system
 - **Document a design system** , one command instead of hand-written token tables
 - **Transfer tokens between files** , extract from file A, import into file B
 - **Learn from Community files** , extract Primer, Material or any public system and see exactly how it's built
