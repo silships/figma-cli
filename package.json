@@ -1,6 +1,6 @@
 {
   "name": "figma-ds-cli",
-  "version": "1.2.0",
+  "version": "2.1.0",
   "description": "CLI for managing Figma design systems. Create variables, components, and more. No API key required.",
   "author": "Sil Bormüller",
   "license": "MIT",
