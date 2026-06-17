@@ -89,7 +89,7 @@ export function patchFigma() {
   // Check write access first
   if (!canPatchFigma()) {
     if (process.platform === 'darwin') {
-      throw new Error('No write access to Figma. Grant Terminal "Full Disk Access" in System Settings → Privacy & Security');
+      throw new Error('No write access to Figma. On macOS 13+ grant your terminal "App Management" (System Settings → Privacy & Security → App Management) — "Full Disk Access" alone does not allow modifying another app. Or use Safe Mode: figma-cli connect --safe');
     } else {
       throw new Error('No write access to Figma. Try running as administrator.');
     }

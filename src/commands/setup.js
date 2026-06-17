@@ -219,12 +219,13 @@ program.action(async () => {
         }
       } catch (error) {
         spinner.fail('Patch failed: ' + error.message);
-        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('Full Disk Access')) && process.platform === 'darwin') {
-          console.log(chalk.yellow('\n  ⚠️  Your Terminal needs "Full Disk Access" permission.\n'));
-          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → Full Disk Access'));
-          console.log(chalk.gray('  2. Click + and add your Terminal app'));
-          console.log(chalk.gray('  3. Quit Terminal completely (Cmd+Q)'));
-          console.log(chalk.gray('  4. Reopen Terminal and try again\n'));
+        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('access') || error.message.includes('App Management')) && process.platform === 'darwin') {
+          console.log(chalk.yellow('\n  ⚠️  Your terminal needs "App Management" permission to patch Figma.\n'));
+          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → App Management'));
+          console.log(chalk.gray('  2. Enable your terminal (Terminal, iTerm, etc.)'));
+          console.log(chalk.gray('  3. Quit the terminal completely (Cmd+Q)'));
+          console.log(chalk.gray('  4. Reopen it and try again'));
+          console.log(chalk.gray('  (If it still fails, also enable Full Disk Access — or just use Safe Mode: figma-cli connect --safe)\n'));
         } else if (error.message.includes('EPERM') || error.message.includes('permission')) {
           console.log(chalk.yellow('\n  Try running as administrator.\n'));
         }
@@ -378,12 +379,13 @@ program
         }
       } catch (error) {
         spinner.fail('Patch failed: ' + error.message);
-        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('Full Disk Access')) && process.platform === 'darwin') {
-          console.log(chalk.yellow('\n  ⚠️  Your Terminal needs "Full Disk Access" permission.\n'));
-          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → Full Disk Access'));
-          console.log(chalk.gray('  2. Click + and add your Terminal app'));
-          console.log(chalk.gray('  3. Quit Terminal completely (Cmd+Q)'));
-          console.log(chalk.gray('  4. Reopen Terminal and try again\n'));
+        if ((error.message.includes('EPERM') || error.message.includes('permission') || error.message.includes('access') || error.message.includes('App Management')) && process.platform === 'darwin') {
+          console.log(chalk.yellow('\n  ⚠️  Your terminal needs "App Management" permission to patch Figma.\n'));
+          console.log(chalk.gray('  1. Open System Settings → Privacy & Security → App Management'));
+          console.log(chalk.gray('  2. Enable your terminal (Terminal, iTerm, etc.)'));
+          console.log(chalk.gray('  3. Quit the terminal completely (Cmd+Q)'));
+          console.log(chalk.gray('  4. Reopen it and try again'));
+          console.log(chalk.gray('  (If it still fails, also enable Full Disk Access — or just use Safe Mode: figma-cli connect --safe)\n'));
         } else if (error.message.includes('EPERM') || error.message.includes('permission')) {
           console.log(chalk.yellow('\n  Try running as administrator.\n'));
         }
@@ -618,7 +620,7 @@ program
       } catch (err) {
         patchSpinner.fail('Setup failed');
 
-        // macOS Full Disk Access needed
+        // macOS 13+ needs "App Management" to modify another app's bundle
         if (process.platform === 'darwin') {
           console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
           console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  One-time setup required                           ') + chalk.hex('#FF6B35')('│'));
@@ -627,12 +629,13 @@ program
           console.log(chalk.white('  Your Terminal needs permission to configure Figma.\n'));
 
           console.log(chalk.cyan('  Step 1: ') + chalk.white('Open ') + chalk.yellow('System Settings'));
-          console.log(chalk.cyan('  Step 2: ') + chalk.white('Go to ') + chalk.yellow('Privacy & Security → Full Disk Access'));
-          console.log(chalk.cyan('  Step 3: ') + chalk.white('Click ') + chalk.yellow('+') + chalk.white(' and add ') + chalk.yellow('Terminal'));
-          console.log(chalk.cyan('  Step 4: ') + chalk.white('Quit Terminal completely ') + chalk.gray('(Cmd+Q)'));
-          console.log(chalk.cyan('  Step 5: ') + chalk.white('Reopen Terminal and try again\n'));
+          console.log(chalk.cyan('  Step 2: ') + chalk.white('Go to ') + chalk.yellow('Privacy & Security → App Management'));
+          console.log(chalk.cyan('  Step 3: ') + chalk.white('Enable your ') + chalk.yellow('Terminal') + chalk.white(' (or iTerm)'));
+          console.log(chalk.cyan('  Step 4: ') + chalk.white('Quit the terminal completely ') + chalk.gray('(Cmd+Q)'));
+          console.log(chalk.cyan('  Step 5: ') + chalk.white('Reopen it and try again\n'));
 
-          console.log(chalk.gray('  Or use Safe Mode: ') + chalk.cyan('node src/index.js connect --safe\n'));
+          console.log(chalk.gray('  (On macOS 13+ "App Management" is what allows patching another app; Full Disk Access alone is not enough.)\n'));
+          console.log(chalk.gray('  Or use Safe Mode (no permission needed): ') + chalk.cyan('node src/index.js connect --safe\n'));
         } else {
           console.log(chalk.yellow('\n  Try running as administrator.\n'));
           console.log(chalk.gray('  Or use Safe Mode: ') + chalk.cyan('node src/index.js connect --safe\n'));

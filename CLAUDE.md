@@ -551,7 +551,7 @@ figma-cli variants from 5:10,5:11 --property State --values Default,Hover
 3. Run `figma-cli connect` (or `--safe`)
 4. When connected, say: "Connected! What would you like to create?"
 
-If permission error (macOS): System Settings > Privacy > Full Disk Access > Add Terminal
+If permission error (macOS 13+): System Settings > Privacy & Security > App Management > enable your terminal (Full Disk Access alone does not allow patching Figma). Or use Safe Mode: `figma-cli connect --safe`
 
 ---
 
