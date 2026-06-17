@@ -177,7 +177,7 @@ test('variantMatrixTable renders a property/values table', () => {
 });
 
 import { generateDesignMd, ALL_SECTIONS } from '../src/design-extract.js';
-import { parseDesignMd } from '../src/design-md.js';
+import { parseDesignMd, variableImportCode } from '../src/design-md.js';
 import { writeFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -419,6 +419,40 @@ test('captures all four Figma variable resolved types (not just colors)', () => 
   assert.match(md, /\| num \| FLOAT \| 8 \|/);
   assert.match(md, /\| str \| STRING \| "Inter" \|/);
   assert.match(md, /\| flag \| BOOLEAN \| true \|/);
+});
+
+// ============ Variables import (DESIGN.md → real Figma collections) ============
+
+test('variableImportCode is valid JS and embeds the collection data', () => {
+  const code = variableImportCode(buildVariableTokens(resolveAliases(FIXTURE_VARS)));
+  assert.doesNotThrow(() => new Function(`return ${code}`));
+  assert.match(code, /createVariableCollection/);
+  assert.match(code, /createVariableAlias/);
+  assert.match(code, /addMode/);
+  assert.match(code, /button-primary-bgColor-rest/);
+});
+
+test('variableImportCode is a two-pass build (aliases resolved after creation)', () => {
+  const code = variableImportCode(buildVariableTokens(resolveAliases(FIXTURE_VARS)));
+  assert.match(code, /PASS 1/);
+  assert.match(code, /PASS 2/);
+  // pass 1 explicitly defers alias values
+  assert.match(code, /'alias' in val\) continue; \/\/ pass 2/);
+  // colors parse 8-digit hex (alpha) too
+  assert.match(code, /\(\[a-f.*\]\{2\}\)\?/);
+});
+
+test('variableImportCode handles a full extract→import roundtrip shape', () => {
+  // The data the importer receives is exactly what parseDesignMd returns.
+  const md = generateDesignMd({ ...EXTRACTION, variables: FIXTURE_VARS });
+  const dir = mkdtempSync(join(tmpdir(), 'vimp-'));
+  const file = join(dir, 'DESIGN.md');
+  writeFileSync(file, md);
+  const parsed = parseDesignMd(file);
+  const code = variableImportCode(parsed.tokens.variables);
+  assert.doesNotThrow(() => new Function(`return ${code}`));
+  assert.match(code, /Primer Primitives/);
+  assert.match(code, /button-primary-bgColor-rest/);
 });
 
 test('Variables roundtrip: parseDesignMd reads the JSON variables block back', () => {

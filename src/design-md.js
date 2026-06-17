@@ -336,3 +336,97 @@ export function toTokensImportJson({ tokens }) {
   }
   return out;
 }
+
+/**
+ * Build the eval source that recreates real variable collections from a
+ * DESIGN.md `variables` block (the shape buildVariableTokens emits):
+ *   { [collectionName]: { modes: [name…], variables: { [name]: { type, values } } } }
+ * where each value is a hex string / number / bool / string, or { alias: name }.
+ *
+ * Two passes so alias chains resolve regardless of declaration order:
+ *   1. create every collection, its modes, and every variable with its
+ *      non-alias values; register names for lookup.
+ *   2. set alias values by resolving the target NAME to a created/pre-existing
+ *      variable (same-collection match preferred, else first global match).
+ *
+ * Idempotent: existing collections/variables are reused, not duplicated.
+ * Returns a JSON.stringify'd { collections, createdCount, aliasCount, unresolved }.
+ * Pure string builder (no Figma access here) so it is unit-testable.
+ */
+export function variableImportCode(variables) {
+  return `(async () => {
+  const VARS = ${JSON.stringify(variables)};
+  const hexToRgba = (hex) => {
+    const m = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})?$/i.exec(String(hex).trim());
+    if (!m) return null;
+    return { r: parseInt(m[1], 16) / 255, g: parseInt(m[2], 16) / 255, b: parseInt(m[3], 16) / 255, a: m[4] != null ? parseInt(m[4], 16) / 255 : 1 };
+  };
+  const TYPES = { COLOR: 1, FLOAT: 1, STRING: 1, BOOLEAN: 1 };
+  const existingCols = await figma.variables.getLocalVariableCollectionsAsync();
+  const allVars = await figma.variables.getLocalVariablesAsync();
+  const byName = new Map();
+  const register = (v) => { const a = byName.get(v.name) || []; a.push(v); byName.set(v.name, a); };
+  allVars.forEach(register);
+
+  const ctx = {};
+  let createdCount = 0, aliasCount = 0, unresolved = 0;
+
+  // PASS 1 — collections, modes, variables, non-alias values
+  for (const [collName, coll] of Object.entries(VARS)) {
+    let col = existingCols.find(c => c.name === collName);
+    if (!col) col = figma.variables.createVariableCollection(collName);
+    const modeNames = (coll.modes && coll.modes.length) ? coll.modes : ['Mode 1'];
+    const modeIds = {};
+    for (let i = 0; i < modeNames.length; i++) {
+      const mn = modeNames[i];
+      let m = col.modes.find(x => x.name === mn);
+      if (!m) {
+        if (i === 0 && col.modes.length === 1) { col.renameMode(col.modes[0].modeId, mn); m = col.modes[0]; }
+        else { try { const id = col.addMode(mn); m = col.modes.find(x => x.modeId === id); } catch (e) { m = col.modes[0]; } }
+      }
+      modeIds[mn] = m.modeId;
+    }
+    const vars = {};
+    for (const [vName, vDef] of Object.entries(coll.variables || {})) {
+      const type = TYPES[vDef.type] ? vDef.type : 'STRING';
+      let v = allVars.find(x => x.name === vName && x.variableCollectionId === col.id) || vars[vName];
+      if (!v) { try { v = figma.variables.createVariable(vName, col, type); register(v); createdCount++; } catch (e) { continue; } }
+      vars[vName] = v;
+      for (const [mn, val] of Object.entries(vDef.values || {})) {
+        const modeId = modeIds[mn];
+        if (modeId == null) continue;
+        if (val && typeof val === 'object' && 'alias' in val) continue; // pass 2
+        try {
+          if (type === 'COLOR') { const rgba = hexToRgba(val); if (rgba) v.setValueForMode(modeId, rgba); }
+          else if (type === 'FLOAT') { if (typeof val === 'number') v.setValueForMode(modeId, val); }
+          else if (type === 'BOOLEAN') v.setValueForMode(modeId, !!val);
+          else v.setValueForMode(modeId, String(val));
+        } catch (e) {}
+      }
+    }
+    ctx[collName] = { modeIds, vars };
+  }
+
+  // PASS 2 — alias values, resolved by target name
+  for (const [collName, coll] of Object.entries(VARS)) {
+    const c = ctx[collName];
+    if (!c) continue;
+    for (const [vName, vDef] of Object.entries(coll.variables || {})) {
+      const v = c.vars[vName];
+      if (!v) continue;
+      for (const [mn, val] of Object.entries(vDef.values || {})) {
+        if (!(val && typeof val === 'object' && 'alias' in val)) continue;
+        const modeId = c.modeIds[mn];
+        if (modeId == null) continue;
+        let target = c.vars[val.alias];
+        if (!target) { const cand = byName.get(val.alias); if (cand && cand.length) target = cand[0]; }
+        if (!target) { unresolved++; continue; }
+        try { v.setValueForMode(modeId, figma.variables.createVariableAlias(target)); aliasCount++; }
+        catch (e) { unresolved++; }
+      }
+    }
+  }
+
+  return JSON.stringify({ collections: Object.keys(VARS).length, createdCount, aliasCount, unresolved });
+})()`;
+}

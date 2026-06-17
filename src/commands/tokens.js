@@ -712,7 +712,40 @@ tokens
     }
 
     checkConnection();
-    const { toTokensImportJson, summarizeForLLM } = await import('../design-md.js');
+    const { toTokensImportJson, summarizeForLLM, variableImportCode } = await import('../design-md.js');
+
+    // Authoritative path: the file carries real variable collections (from
+    // `figma-cli extract`). Recreate them faithfully — names, modes, alias
+    // chains — instead of the lossy single-mode palette derived from fills.
+    const realVars = parsed.tokens.variables;
+    if (realVars && Object.keys(realVars).length) {
+      const collNames = Object.keys(realVars);
+      const totalVars = collNames.reduce((a, n) => a + Object.keys(realVars[n].variables || {}).length, 0);
+      if (options.collection) {
+        console.log(chalk.yellow('⚠'), `--collection is ignored: this file carries ${collNames.length} named collection(s); using their real names.`);
+      }
+      const spinner = ora(`Recreating ${totalVars} variable(s) across ${collNames.length} collection(s)…`).start();
+      try {
+        const result = await daemonExec('eval', { code: variableImportCode(realVars) });
+        const r = typeof result === 'string' ? (() => { try { return JSON.parse(result); } catch { return null; } })() : result;
+        if (r) {
+          spinner.succeed(`Created ${r.createdCount} variable(s), wired ${r.aliasCount} alias(es) across ${r.collections} collection(s)`);
+          if (r.unresolved) console.log(chalk.yellow(`  ⚠ ${r.unresolved} alias value(s) unresolved (target outside this file / type mismatch)`));
+        } else {
+          spinner.succeed('Variables imported');
+        }
+      } catch (error) {
+        spinner.fail('Failed to import variable collections');
+        console.error(error.message);
+        process.exit(1);
+      }
+      console.log();
+      console.log(chalk.cyan('─── figmachat context (drop into /design) ───'));
+      console.log(summarizeForLLM(parsed));
+      console.log(chalk.cyan('──────────────────────────────────────────────'));
+      return;
+    }
+
     const tokensData = toTokensImportJson(parsed);
     const collectionName = options.collection || parsed.meta.source || 'Imported Design System';
     const colorCount = Object.keys(tokensData.color || {}).length;
