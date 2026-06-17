@@ -273,7 +273,7 @@ test('generateDesignMd components section emits the Reuse line', () => {
 
 // ============ Variables capture ============
 
-import { variablesCode, resolveAliases, formatVarValue, buildVariableTokens, mdCell } from '../src/design-extract.js';
+import { variablesCode, variableCollectionsCode, variableChunkCode, resolveAliases, formatVarValue, buildVariableTokens, mdCell } from '../src/design-extract.js';
 
 const FIXTURE_VARS = [
   {
@@ -303,6 +303,25 @@ test('variablesCode resolves alias names in-Figma (handles library/remote refs)'
   // library variable ids resolve to a readable name, not a raw VariableID.
   assert.match(code, /nameCache/);
   assert.match(code, /aliasName/);
+  assert.match(code, /alias: await aliasName\(raw\.id\)/);
+});
+
+test('variableCollectionsCode lists collections without reading values', () => {
+  const code = variableCollectionsCode();
+  assert.doesNotThrow(() => new Function(`return ${code}`));
+  assert.match(code, /getLocalVariableCollectionsAsync/);
+  assert.match(code, /variableIds/);
+  // it must NOT pull every value (that's the chunked path's job)
+  assert.doesNotMatch(code, /valuesByMode/);
+});
+
+test('variableChunkCode embeds the id slice + modes and is valid JS', () => {
+  const code = variableChunkCode(['V:1', 'V:2'], [{ id: 'm1', name: 'Light' }]);
+  assert.doesNotThrow(() => new Function(`return ${code}`));
+  assert.match(code, /"V:1"/);
+  assert.match(code, /"V:2"/);
+  assert.match(code, /"Light"/);
+  // shares the same alias-resolution helper as the one-shot path
   assert.match(code, /alias: await aliasName\(raw\.id\)/);
 });
 

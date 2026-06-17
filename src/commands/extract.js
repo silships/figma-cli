@@ -5,11 +5,16 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { join, dirname, resolve } from 'path';
 import { program, checkConnection, fastEval } from '../lib/cli-core.js';
 import {
-  listPagesCode, walkerCode, variablesCode, generateDesignMd, generatePageStructureMd,
-  estimateStructureTokens, ALL_SECTIONS,
+  listPagesCode, walkerCode, variableCollectionsCode, variableChunkCode,
+  generateDesignMd, generatePageStructureMd, estimateStructureTokens, ALL_SECTIONS,
 } from '../design-extract.js';
 
 const DEPTH_FLOOR = 3;
+// Variable values are fetched in bounded chunks so huge libraries (thousands
+// of variables) never land in one oversized eval. On payload/timeout the
+// chunk halves down to this floor before the rest of a collection is skipped.
+const VAR_CHUNK = 200;
+const VAR_CHUNK_FLOOR = 25;
 // Structure trees above this estimated token count get auto-split into
 // DESIGN-structure/ so the main DESIGN.md stays loadable in one AI context.
 const AUTO_SPLIT_TOKENS = 50_000;
@@ -84,15 +89,44 @@ program
       ));
 
       // Authoritative token layer: the file's real variable collections.
-      // Best-effort — older Figma builds or files without variables yield [].
+      // Two-phase + chunked so it scales to large systems: list collections
+      // (tiny), then fetch each collection's values in bounded, retryable
+      // chunks. Best-effort — older Figma builds / files without variables
+      // yield []. droppedVars counts any chunk skipped after exhausting retries
+      // so the summary can tell "no variables" apart from "some unreadable".
       let variables = [];
+      let droppedVars = 0;
       const wantsVariables = !sections || sections.includes('variables');
       if (wantsVariables) {
         spinner.text = 'Reading variable collections…';
+        let cols = [];
         try {
-          variables = parseEvalResult(await fastEval(variablesCode())) || [];
+          cols = parseEvalResult(await fastEval(variableCollectionsCode())) || [];
         } catch (e) {
-          variables = [];
+          cols = [];
+        }
+        for (let ci = 0; ci < cols.length; ci++) {
+          const col = cols[ci];
+          const ids = col.variableIds || [];
+          const collected = [];
+          let chunk = VAR_CHUNK;
+          for (let i = 0; i < ids.length;) {
+            spinner.text = `Variables: ${col.name} (${i}/${ids.length})…`;
+            const slice = ids.slice(i, i + chunk);
+            try {
+              const got = parseEvalResult(await fastEval(variableChunkCode(slice, col.modes))) || [];
+              collected.push(...got);
+              i += chunk;
+            } catch (e) {
+              if (/payload|too large|timeout/i.test(e.message) && chunk > VAR_CHUNK_FLOOR) {
+                chunk = Math.floor(chunk / 2);
+                continue;
+              }
+              droppedVars += slice.length;
+              i += chunk; // skip this slice, keep going with the rest
+            }
+          }
+          variables.push({ id: col.id, name: col.name, modes: col.modes, variables: collected });
         }
       }
 
@@ -171,6 +205,7 @@ program
       if (variables.length) {
         const varCount = variables.reduce((a, c) => a + (c.variables?.length || 0), 0);
         console.log(chalk.gray(`  Captured ${varCount} variable(s) across ${variables.length} collection(s) — real token names + modes (see § Variables)`));
+        if (droppedVars) console.log(chalk.yellow(`  ⚠ ${droppedVars} variable(s) skipped (chunk too large even at floor) — they're missing from § Variables`));
       }
       if (autoSplit) console.log(chalk.gray(`  Structure (~${Math.round(structTokens / 1000)}k tokens) auto-split into DESIGN-structure/ — main file stays AI-context-sized (--no-split to override)`));
       else if (doSplit) console.log(chalk.gray(`  + ${results.length} structure file(s) in DESIGN-structure/`));

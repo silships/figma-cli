@@ -28,12 +28,15 @@ export function listPagesCode() {
  * pass through, and VARIABLE_ALIAS values are captured as { alias: <id> } for
  * Node-side name resolution. Self-contained for the plugin sandbox.
  */
-export function variablesCode() {
-  return `(async () => {
+/**
+ * Shared eval helpers spliced into the variable-reading IIFEs: hex(),
+ * aliasName() (cached id→name, resolves library/remote refs too), and
+ * readVarValues(v, modes) → { modeName: value } applying the COLOR→hex /
+ * alias / passthrough rules. Single-sourced so the one-shot and chunked
+ * paths can never drift.
+ */
+const VAR_EVAL_HELPERS = `
     const hex = (c) => '#' + [c.r, c.g, c.b].map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('') + (c.a != null && c.a < 1 ? Math.round(c.a * 255).toString(16).padStart(2, '0') : '');
-    // Resolve an alias target to its variable NAME (cached). Works for library /
-    // remote variables too — Figma can fetch imported variable ids here, which a
-    // Node-side id→name map of only the local collections cannot.
     const nameCache = new Map();
     const aliasName = async (id) => {
       if (nameCache.has(id)) return nameCache.get(id);
@@ -42,6 +45,20 @@ export function variablesCode() {
       nameCache.set(id, name);
       return name;
     };
+    const readVarValues = async (v, modes) => {
+      const values = {};
+      for (const m of modes) {
+        const raw = v.valuesByMode[m.id];
+        if (raw == null) continue;
+        if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') values[m.name] = { alias: await aliasName(raw.id) };
+        else if (v.resolvedType === 'COLOR' && raw && typeof raw === 'object' && 'r' in raw) values[m.name] = hex(raw);
+        else values[m.name] = raw;
+      }
+      return values;
+    };`;
+
+export function variablesCode() {
+  return `(async () => {${VAR_EVAL_HELPERS}
     let cols = [];
     try { cols = await figma.variables.getLocalVariableCollectionsAsync(); } catch (e) { return JSON.stringify([]); }
     const out = [];
@@ -52,19 +69,46 @@ export function variablesCode() {
         let v;
         try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) { continue; }
         if (!v) continue;
-        const values = {};
-        for (const m of col.modes) {
-          const raw = v.valuesByMode[m.modeId];
-          if (raw == null) continue;
-          if (typeof raw === 'object' && raw.type === 'VARIABLE_ALIAS') values[m.name] = { alias: await aliasName(raw.id) };
-          else if (v.resolvedType === 'COLOR' && raw && typeof raw === 'object' && 'r' in raw) values[m.name] = hex(raw);
-          else values[m.name] = raw;
-        }
-        variables.push({ id: v.id, name: v.name, type: v.resolvedType, values });
+        variables.push({ id: v.id, name: v.name, type: v.resolvedType, values: await readVarValues(v, modes) });
       }
       out.push({ id: col.id, name: col.name, modes, variables });
     }
     return JSON.stringify(out);
+  })()`;
+}
+
+/**
+ * Eval snippet: list variable collections WITHOUT reading any values — just
+ * id, name, modes and the variableIds. Tiny payload even for huge systems;
+ * the command then fetches values in bounded chunks (variableChunkCode) so a
+ * 10k-variable library never lands in one oversized/timing-out eval.
+ */
+export function variableCollectionsCode() {
+  return `(async () => {
+    let cols = [];
+    try { cols = await figma.variables.getLocalVariableCollectionsAsync(); } catch (e) { return JSON.stringify([]); }
+    return JSON.stringify(cols.map(c => ({ id: c.id, name: c.name, modes: c.modes.map(m => ({ id: m.modeId, name: m.name })), variableIds: c.variableIds })));
+  })()`;
+}
+
+/**
+ * Eval snippet: read one chunk of variables by explicit id list, for the given
+ * modes ([{ id, name }]). Returns [{ id, name, type, values }]. Self-contained;
+ * the alias name cache is per-chunk (fresh sandbox), which costs a few extra
+ * lookups but keeps each call independent and retryable at a smaller size.
+ */
+export function variableChunkCode(ids, modes) {
+  return `(async () => {${VAR_EVAL_HELPERS}
+    const modes = ${JSON.stringify(modes)};
+    const ids = ${JSON.stringify(ids)};
+    const variables = [];
+    for (const id of ids) {
+      let v;
+      try { v = await figma.variables.getVariableByIdAsync(id); } catch (e) { continue; }
+      if (!v) continue;
+      variables.push({ id: v.id, name: v.name, type: v.resolvedType, values: await readVarValues(v, modes) });
+    }
+    return JSON.stringify(variables);
   })()`;
 }
 
