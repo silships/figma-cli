@@ -513,6 +513,15 @@ const CONFIG_FILE = join(CONFIG_DIR, 'config.json');
 
 const program = new Command();
 
+program.option('--port <number>', 'CDP port for Figma connection (default: 9222, env: FIGMA_PORT)');
+
+program.hook('preAction', (thisCommand) => {
+  const opts = thisCommand.opts();
+  if (opts.port) {
+    process.env.FIGMA_PORT = String(opts.port);
+  }
+});
+
 // Helper: Prompt user
 function prompt(question) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
