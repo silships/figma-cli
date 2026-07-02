@@ -4,6 +4,15 @@ import ora from 'ora';
 import { execSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
+
+function isNixOS() {
+  try {
+    const release = readFileSync('/etc/os-release', 'utf8');
+    return /^ID=nixos$/m.test(release) || /^ID_LIKE=.*nixos/m.test(release);
+  } catch {
+    return false;
+  }
+}
 import { join, basename } from 'path';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
@@ -22,7 +31,10 @@ import {
   saveConfig,
   startDaemon,
   startFigma,
-  stopDaemon
+  stopDaemon,
+  detectBrowser,
+  isCdpBrowserRunning,
+  startFigmaBrowser
 } from '../lib/cli-core.js';
 
 program
@@ -514,14 +526,107 @@ program
 
 program
   .command('connect')
-  .description('Connect to Figma Desktop')
+  .description('Connect to Figma Desktop or browser')
   .option('--safe', 'Use Safe Mode (plugin-based, no patching required)')
+  .option('--browser', 'Yolo/CDP against Figma in a Chromium browser — no plugin, no Desktop (auto on NixOS)')
   .action(async (options) => {
     // Fun welcome message
     console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
     console.log(chalk.hex('#4ECDC4')('  🎨 Happy vibe coding! ') + chalk.gray('— Sil · ') + chalk.hex('#FF6B35')('intodesignsystems.com\n'));
 
     const config = loadConfig();
+
+    // Auto-detect NixOS — Figma Desktop is not available, use browser (CDP) mode
+    if (!options.safe && !options.browser && isNixOS()) {
+      console.log(chalk.hex('#4ECDC4')('  🐧 NixOS detected ') + chalk.gray('— Figma Desktop is not available, using browser mode\n'));
+      options.browser = true;
+    }
+
+    // Browser Mode: Yolo/CDP against Figma running in a Chromium browser.
+    // No plugin, no Desktop patch — launch the browser with remote debugging
+    // and drive it over the exact same CDP path Desktop Yolo uses.
+    if (options.browser) {
+      console.log(chalk.hex('#FF6B35')('  🌐 Browser Mode ') + chalk.gray('(Yolo/CDP — no plugin, no Desktop)\n'));
+
+      const browser = detectBrowser();
+      if (!browser) {
+        console.log(chalk.red('  ✗ No Chromium-based browser found.'));
+        console.log(chalk.gray('    Install one of: Chrome, Chromium, Brave, Edge, Vivaldi'));
+        console.log(chalk.gray('    (Firefox is not supported — it does not speak the Chrome DevTools Protocol.)'));
+        console.log(chalk.gray('    Or set FIGMA_CLI_BROWSER=<binary>, or use Safe Mode: ') + chalk.cyan('figma-cli connect --safe\n'));
+        return;
+      }
+
+      // Launch the browser with remote debugging unless one is already up.
+      const launchSpinner = ora('Checking for a debug-enabled browser...').start();
+      const alreadyUp = await isCdpBrowserRunning();
+      if (alreadyUp) {
+        launchSpinner.succeed('Debug-enabled browser already running');
+      } else {
+        launchSpinner.text = `Launching ${browser} with remote debugging...`;
+        startFigmaBrowser();
+        // Wait for the CDP endpoint to come alive
+        let up = false;
+        for (let i = 0; i < 20; i++) {
+          await new Promise(r => setTimeout(r, 500));
+          if (await isCdpBrowserRunning()) { up = true; break; }
+        }
+        if (up) launchSpinner.succeed(`Launched ${browser} with remote debugging`);
+        else {
+          launchSpinner.fail('Browser did not expose the debug port');
+          console.log(chalk.gray('\n  Start it manually:'));
+          console.log(chalk.cyan(`    ${browser} --remote-debugging-port=9222 --user-data-dir=~/.figma-ds-cli/browser-profile https://figma.com\n`));
+          return;
+        }
+      }
+
+      // Start the daemon in CDP mode (same engine as Desktop Yolo)
+      stopDaemon();
+      const daemonSpinner = ora('Starting speed daemon (CDP mode)...').start();
+      try {
+        startDaemon(true, 'cdp');
+        await new Promise(r => setTimeout(r, 1200));
+        if (isDaemonRunning()) daemonSpinner.succeed('Daemon running (Browser Yolo)');
+        else { daemonSpinner.fail('Daemon failed to start'); return; }
+      } catch (e) {
+        daemonSpinner.fail('Daemon failed: ' + e.message);
+        return;
+      }
+
+      // Instructions + wait for a Figma design file + live figma context
+      console.log(chalk.hex('#FF6B35')('\n  ┌─────────────────────────────────────────────────────┐'));
+      console.log(chalk.hex('#FF6B35')('  │') + chalk.white.bold('  Log in and open a file                            ') + chalk.hex('#FF6B35')('│'));
+      console.log(chalk.hex('#FF6B35')('  └─────────────────────────────────────────────────────┘\n'));
+      console.log(chalk.cyan('  1. ') + chalk.white('In the browser window that opened, ') + chalk.yellow('log into Figma') + chalk.gray(' (first time only)'));
+      console.log(chalk.cyan('  2. ') + chalk.white('Open any ') + chalk.yellow('design file') + chalk.white(' (a ') + chalk.gray('figma.com/design/…') + chalk.white(' tab)\n'));
+
+      const connectSpinner = ora('Waiting for a Figma design file...').start();
+      let connected = false;
+      const MAX_WAIT_S = 120;
+      for (let i = 0; i < MAX_WAIT_S; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try {
+          if (await FigmaClient.isConnected()) {
+            connectSpinner.succeed('Connected to Figma in the browser!');
+            console.log(chalk.green('\n  ✓ Ready! Browser Yolo active — no plugin, no Desktop.\n'));
+            console.log(chalk.gray('  Tip: your login is saved in ~/.figma-ds-cli/browser-profile, so next time'));
+            console.log(chalk.gray('  just run ') + chalk.cyan('figma-cli connect') + chalk.gray(' and open your file.\n'));
+            connected = true;
+            break;
+          }
+        } catch {}
+        if (i === Math.floor(MAX_WAIT_S / 2)) {
+          connectSpinner.text = `Waiting for a Figma design file (${MAX_WAIT_S - i}s left)…`;
+        }
+      }
+
+      if (!connected) {
+        connectSpinner.warn('No design file detected yet — daemon is still listening.');
+        console.log(chalk.gray('\n  Open a design file in the browser whenever you\'re ready —'));
+        console.log(chalk.gray('  the next CLI command will connect automatically.\n'));
+      }
+      return;
+    }
 
     // Safe Mode: Plugin-based connection (no patching, no CDP)
     if (options.safe) {
