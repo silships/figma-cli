@@ -281,6 +281,18 @@ Prefer to keep everything on your machine? figma-cli also works with **local LLM
 
 ---
 
+## 🎥 Live Example: Variables + Component Handoff
+
+To show Browser Yolo mode in action end-to-end, here's a live example covering of one of the workflows:
+
+| Creating Variables | Designing Variant | Handoff |
+|---|---|---|
+| <img width="1904" height="1026" alt="image" src="https://github.com/user-attachments/assets/cf744cfd-faea-41fa-b88c-23eb38276f3a" /> | <img width="1908" height="1029" alt="image" src="https://github.com/user-attachments/assets/b415c644-5928-4e39-87e3-bff5dffb88eb" /> | <img width="1905" height="1024" alt="image" src="https://github.com/user-attachments/assets/81814f39-aca8-4ff3-8814-7a93d12e2f24" /> |
+
+This demonstrates the full loop working through CDP on NixOS, from token creation to a dev-ready handoff, with no Figma Desktop involved.
+
+---
+
 ## For developers
 
 Everything above is powered by a CLI that the AI calls for you. If you want to use it directly, script it, or see every command:
