@@ -120,6 +120,65 @@ figma-cli talks to your Figma Desktop in one of two ways. Claude picks one durin
 
 ---
 
+## Use figma-cli as an MCP server in Claude Code
+
+figma-cli ships a built-in MCP server (`src/mcp-server.js`). Register it once in your global Claude Code settings and **every project you open** gets all 21 `figma_*` tools — no shell commands, no need to open this repo.
+
+### One-time setup
+
+1. **Clone this repo** (if you haven't already):
+   ```bash
+   git clone https://github.com/alauxui/figma-cli-nixos.git ~/figma-cli-nixos
+   cd ~/figma-cli-nixos && npm install
+   ```
+
+2. **Add the MCP server to `~/.claude/settings.json`:**
+   ```json
+   "mcpServers": {
+     "figma-cli": {
+       "command": "node",
+       "args": ["/absolute/path/to/figma-cli-nixos/src/mcp-server.js"]
+     }
+   }
+   ```
+   Replace `/absolute/path/to/figma-cli-nixos` with the actual path on your machine.
+
+3. **Restart Claude Code.**
+
+That's it. Open any project and say things like:
+- "what's on the Figma canvas?" → calls `figma_canvas_info`
+- "create a button in Figma" → calls `figma_render`
+- "show me the design tokens" → calls `figma_var_list`
+- "export the design system" → calls `figma_extract`
+
+### Tools exposed
+
+| Tool | What it does |
+|------|-------------|
+| `figma_render` | Render a JSX frame on canvas |
+| `figma_render_batch` | Render multiple frames at once |
+| `figma_verify` | Screenshot a node for visual validation |
+| `figma_var_list` | List all variables/tokens |
+| `figma_tokens_preset` | Load shadcn / Tailwind / DS token presets |
+| `figma_canvas_info` | Show everything on canvas |
+| `figma_find` | Find nodes by name |
+| `figma_to_component` | Convert frame to component |
+| `figma_instantiate` | Drop an instance of an existing component |
+| `figma_spec` | Show variant axes from DESIGN.md |
+| `figma_extract` | Export file as DESIGN.md |
+| `figma_import` | Import tokens from CSS / Tailwind / JSON / Storybook |
+| `figma_export` | Export as PNG / SVG / DTCG / CSS / Tailwind |
+| `figma_blocks` | Create pre-built UI layouts (dashboards etc.) |
+| `figma_shadcn_add` | Add shadcn components |
+| `figma_a11y` | Run accessibility checks |
+| `figma_undo` | Undo last operation |
+| `figma_gradient` | Create mesh/aurora gradient backgrounds |
+| `figma_variants_from` | Combine frames into a Component Set |
+| `figma_daemon` | Check / restart the daemon |
+| `figma_connect` | Connect to Figma (Yolo or Safe mode) |
+
+---
+
 ## figma-cli vs the MCP servers (the question I get asked most)
 
 People keep asking how figma-cli differs from **Figma's official MCP** and from **figma-console-mcp**. Short version: they talk to Figma through the **cloud REST API**, figma-cli talks to **Figma Desktop directly on your machine**. That one architectural choice changes everything downstream.
