@@ -411,14 +411,27 @@ program
       // Extract props that figma-use doesn't handle correctly
       const postProcessFixes = extractPostProcessFixes(jsx);
 
-      // Check if we're in Safe Mode (plugin only, no CDP)
+      // Decide whether to render via the daemon or the external figma-use binary.
+      // Use the daemon when:
+      //   - Safe Mode (plugin only, no CDP), OR
+      //   - figma-use isn't installed (e.g. NixOS browser Yolo — CDP works via
+      //     the daemon, but there's no figma-use binary to shell out to).
+      // The daemon's render works in both plugin and CDP modes, so this only
+      // ever adds a working path — Desktop Yolo with figma-use installed is
+      // unchanged.
       let useDaemonRender = false;
       try {
         const healthToken = getDaemonToken();
         const healthHeader = healthToken ? ` -H "X-Daemon-Token: ${healthToken}"` : '';
         const healthRes = execSync(`curl -s${healthHeader} http://127.0.0.1:${DAEMON_PORT}/health`, { encoding: 'utf8', timeout: 2000 });
         const health = JSON.parse(healthRes);
-        useDaemonRender = health.plugin && !health.cdp; // Safe Mode
+        const safeMode = health.plugin && !health.cdp;
+        let figmaUseAvailable = false;
+        try {
+          execSync('command -v figma-use', { stdio: 'ignore' });
+          figmaUseAvailable = true;
+        } catch {}
+        useDaemonRender = (health.plugin || health.cdp) && (safeMode || !figmaUseAvailable);
       } catch {}
 
       let result;

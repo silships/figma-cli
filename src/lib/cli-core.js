@@ -497,6 +497,59 @@ function killFigma() {
   killFigmaApp();
 }
 
+// ── Browser (CDP) mode — for platforms without Figma Desktop (e.g. NixOS) ──
+// Instead of patching the Desktop app, drive Figma running in a Chromium-based
+// browser launched with --remote-debugging-port. Same CDP protocol, so the
+// existing FigmaClient / daemon work unchanged.
+
+// Persistent profile so the Figma login survives across launches.
+const BROWSER_PROFILE_DIR = join(homedir(), '.figma-ds-cli', 'browser-profile');
+
+const BROWSER_CANDIDATES = [
+  'google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser',
+  'brave', 'brave-browser', 'microsoft-edge', 'vivaldi'
+];
+
+// Find a Chromium-based browser binary on PATH (CDP requires Chromium, not Firefox).
+function detectBrowser() {
+  if (process.env.FIGMA_CLI_BROWSER) return process.env.FIGMA_CLI_BROWSER;
+  for (const bin of BROWSER_CANDIDATES) {
+    try {
+      const p = execSync(`command -v ${bin}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (p) return bin;
+    } catch {}
+  }
+  return null;
+}
+
+// Is a debug-enabled browser already listening on the CDP port?
+async function isCdpBrowserRunning() {
+  try {
+    const port = getCdpPort();
+    const res = await fetch(`http://127.0.0.1:${port}/json/version`, { signal: AbortSignal.timeout(1500) });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+// Launch the browser with remote debugging enabled + a persistent profile,
+// opening figma.com. Returns the browser binary used, or null if none found.
+function startFigmaBrowser(url = 'https://www.figma.com') {
+  const browser = detectBrowser();
+  if (!browser) return null;
+  const port = getCdpPort();
+  const child = spawn(browser, [
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${BROWSER_PROFILE_DIR}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    url
+  ], { detached: true, stdio: 'ignore' });
+  child.unref();
+  return browser;
+}
+
 function getManualStartCommand() {
   // Use centralized command from figma-patch.js
   return getFigmaCommand(getCdpPort());
@@ -937,7 +990,10 @@ export {
   checkConnection,
   checkConnectionSync,
   daemonExec,
+  detectBrowser,
   detectWrapperSplit,
+  isCdpBrowserRunning,
+  startFigmaBrowser,
   fastEval,
   fastRender,
   figmaEval,
