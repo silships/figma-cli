@@ -529,6 +529,12 @@ const httpServer = createServer(handleRequest);
 // WebSocket server for plugin connections
 const wss = new WebSocketServer({ server: httpServer, path: '/plugin' });
 
+// Private Network Access header — required for Chrome 130+ when the plugin
+// runs inside browser Figma (origin: https://www.figma.com → localhost).
+wss.on('headers', (headers) => {
+  headers.push('Access-Control-Allow-Private-Network: true');
+});
+
 wss.on('connection', (ws) => {
   console.log('[daemon] Plugin connected (Safe Mode)');
   pluginWs = ws;
