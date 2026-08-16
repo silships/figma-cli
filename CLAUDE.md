@@ -200,6 +200,9 @@ Big tool output accumulates in the conversation; when context fills, Claude Code
 compacts it and DETAILS get lost (exact node IDs, values, what was tried), which
 shows up as confidently-wrong recall ("hallucinated" IDs). Keep context lean:
 
+- **Pull ONE section of this guide instead of reading all of it.** The whole file is
+  ~10,200 tokens; `figma-cli docs jsx-syntax` is ~930. `figma-cli docs` lists the
+  topics with their token cost. Read the file whole only when you truly need it all.
 - **`verify` saves the PNG to disk by default** and returns just dimensions, instead
   of dumping a base64 image (thousands of tokens) into context. Use `--save <path>`
   only to pick a custom path; avoid `--base64` unless a script needs the inline data.
@@ -752,6 +755,8 @@ figma-cli recreate-url "URL"         # Recreate webpage in Figma
 figma-cli screenshot-url "URL"       # Screenshot webpage
 figma-cli daemon status              # Check daemon
 figma-cli daemon restart             # Restart daemon
+figma-cli docs                       # List this guide's topics + token cost
+figma-cli docs jsx-syntax            # Print ONE section (~930 tok, not ~10,200)
 ```
 
 For eval patterns, layout examples, and Safe Mode templates, see REFERENCE.md.
