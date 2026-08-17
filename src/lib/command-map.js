@@ -7,7 +7,7 @@ export const ALL = [
   'setup', 'variables', 'daemon', 'tokens', 'gradient', 'create', 'url-tools',
   'config', 'canvas-ops', 'render', 'export-eval', 'analyze', 'a11y',
   'node-ops', 'slots', 'figjam', 'variants', 'misc', 'extract', 'rules',
-  'snapshot', 'spec', 'instantiate', 'init', 'motion',
+  'snapshot', 'spec', 'instantiate', 'init', 'motion', 'styles',
 ];
 
 /**
@@ -85,6 +85,7 @@ export const COMMAND_MODULES = {
   a11y: ['a11y'],
   node: ['node-ops'],
   slot: ['slots'],
+  styles: ['styles'],
   'export-jsx': ['figjam'],
   'export-storybook': ['figjam'],
   figjam: ['figjam'],

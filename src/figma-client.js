@@ -7,6 +7,7 @@
 
 import WebSocket from 'ws';
 import { getCdpPort } from './figma-patch.js';
+import { normalizeWeight, buildStyleIndex, matchTextStyle } from './lib/text-styles.js';
 
 /**
  * Visible fallback colors for shadcn semantic token names (Zinc light theme).
@@ -142,6 +143,141 @@ export const LAYOUT_WARN_PRELUDE = `
           };
         }`;
 
+/**
+ * Runtime prelude: resolve and apply the file's TEXT STYLES.
+ *
+ * Without this every rendered text is an island of hardcoded values — it never
+ * picks up a style, and `figma-cli analyze` flags it as "missing style".
+ *
+ * The matching rules are not written here. `src/lib/text-styles.js` owns them,
+ * and its source is embedded below, so the unit tests exercise exactly the code
+ * that runs inside Figma.
+ *
+ * The cache holds local styles PLUS every remote (library) style already used
+ * by a text node on the page — a library style has no other name-addressable
+ * route, since Figma only exposes remote styles by key.
+ */
+export const TEXT_STYLE_PRELUDE = `
+        {
+          ${normalizeWeight.toString()}
+          ${buildStyleIndex.toString()}
+          ${matchTextStyle.toString()}
+
+          globalThis.__textStyleWarnings = [];
+          globalThis.__textStyleApplied = [];
+
+          globalThis.__loadTextStyles = async () => {
+            if (globalThis.__textStyleCache &&
+                Date.now() - (globalThis.__textStyleCacheTime || 0) < 30000) {
+              return globalThis.__textStyleCache;
+            }
+            const local = await figma.getLocalTextStylesAsync();
+            const styles = local.map(s => ({
+              id: s.id, name: s.name, fontSize: s.fontSize,
+              fontName: { family: s.fontName.family, style: s.fontName.style },
+            }));
+            const known = new Set(styles.map(s => s.id));
+            // Remote styles are only reachable by key, so harvest the ones the
+            // document already uses — that is what a designer means by "the
+            // styles in this file".
+            try {
+              const texts = figma.currentPage.findAllWithCriteria({ types: ['TEXT'] });
+              const ids = new Set();
+              for (const t of texts) {
+                const id = t.textStyleId;
+                if (typeof id === 'string' && id && !known.has(id)) ids.add(id);
+              }
+              for (const id of ids) {
+                const st = await figma.getStyleByIdAsync(id);
+                if (st && st.fontName) {
+                  styles.push({
+                    id: st.id, name: st.name, fontSize: st.fontSize,
+                    fontName: { family: st.fontName.family, style: st.fontName.style },
+                    remote: true,
+                  });
+                }
+              }
+            } catch (e) {}
+            globalThis.__textStyleCache = { styles, index: buildStyleIndex(styles) };
+            globalThis.__textStyleCacheTime = Date.now();
+            return globalThis.__textStyleCache;
+          };
+
+          const __setStyle = async (node, style) => {
+            await figma.loadFontAsync(style.fontName);
+            await node.setTextStyleIdAsync(style.id);
+            globalThis.__textStyleApplied.push(style.name);
+          };
+
+          // Explicit textStyle="…". Never throws: an unknown name is a warning
+          // and the text still renders with its own props.
+          globalThis.__applyTextStyle = async (node, name, explicit) => {
+            try {
+              const cache = await globalThis.__loadTextStyles();
+              const style = cache.index[name];
+              if (!style) {
+                const available = Object.keys(cache.index).filter(n => n.indexOf('/') >= 0);
+                globalThis.__textStyleWarnings.push(
+                  'text style "' + name + '" not found' +
+                  (available.length ? ' — available: ' + available.slice(0, 8).join(', ') : ' (this file has none)')
+                );
+                return;
+              }
+              await __setStyle(node, style);
+              // A typographic prop written after the style would clear it, so
+              // the conflicting props are reported rather than applied.
+              const e = explicit || {};
+              const clashes = [];
+              if (e.size !== undefined && Number(e.size) !== Number(style.fontSize)) {
+                clashes.push('size={' + e.size + '} vs ' + style.fontSize + 'px');
+              }
+              if (e.weightStyle && normalizeWeight(e.weightStyle) !== normalizeWeight(style.fontName.style)) {
+                clashes.push('weight "' + e.weightStyle + '" vs ' + style.fontName.style);
+              }
+              if (e.family && e.family.toLowerCase() !== style.fontName.family.toLowerCase()) {
+                clashes.push('font "' + e.family + '" vs ' + style.fontName.family);
+              }
+              if (e.lineHeight) clashes.push('lineHeight');
+              if (e.letterSpacing) clashes.push('letterSpacing');
+              if (clashes.length) {
+                globalThis.__textStyleWarnings.push(
+                  'textStyle="' + style.name + '" wins over ' + clashes.join(', ') +
+                  ' — writing those would detach the style, so they were dropped'
+                );
+              }
+            } catch (e) {
+              globalThis.__textStyleWarnings.push('text style "' + name + '" failed: ' + e.message);
+            }
+          };
+
+          // No textStyle given: apply the file's style when EXACTLY one matches
+          // this text's size and weight. Several matches or none = do nothing
+          // and say why; guessing would restyle text that was sized on purpose.
+          globalThis.__autoTextStyle = async (node, want) => {
+            try {
+              const cache = await globalThis.__loadTextStyles();
+              if (!cache.styles.length) return;
+              const r = matchTextStyle({
+                styles: cache.styles, size: want.size, weightStyle: want.weightStyle,
+                family: want.family, familyExplicit: want.familyExplicit,
+              });
+              if (r.match) { await __setStyle(node, r.match); return; }
+              const label = want.size + 'px ' + want.weightStyle;
+              if (r.ambiguous) {
+                globalThis.__textStyleWarnings.push(
+                  'no style applied for ' + label + ' — ' + r.ambiguous.length +
+                  ' styles match: ' + r.ambiguous.join(', ') + ' (name one with textStyle=)'
+                );
+              } else if (r.nearest) {
+                globalThis.__textStyleWarnings.push(
+                  'no text style for ' + label + ' — nearest: "' + r.nearest.name + '" (' +
+                  r.nearest.fontSize + 'px ' + r.nearest.fontName.style + ')'
+                );
+              }
+            } catch (e) {}
+          };
+        }`;
+
 export function generateMinMaxCode(varName, item = {}) {
   const num = (v) => {
     if (v === undefined || v === null || v === '') return null;
@@ -174,11 +310,19 @@ export class FigmaClient {
     // in JSX overrides this. nullish = use the global "shadcn first, then any"
     // fallback in the var-cache loader.
     this.collectionFilter = null;
+    // Auto-apply a file text style to a <Text> that names none, when exactly
+    // one style matches its size and weight. `--no-auto-style` turns it off.
+    this.autoTextStyle = true;
   }
 
   /** Pin variable lookups to a specific collection (by case-insensitive name match). */
   setCollection(name) {
     this.collectionFilter = name || null;
+  }
+
+  /** Turn the automatic text-style matching on or off (JSX `textStyle=` still applies). */
+  setAutoTextStyle(on) {
+    this.autoTextStyle = on !== false;
   }
 
   /**
@@ -605,6 +749,7 @@ export class FigmaClient {
     ` : '';
 
     // Generate code for each frame
+    let anyText = false;
     const framesCodes = parsed.map(({ props, children }, frameIdx) => {
       const name = props.name || 'Frame';
       // "fill" / "hug" are sizing keywords that only make sense for nested
@@ -648,7 +793,8 @@ export class FigmaClient {
       const effectsCode = this.generateEffectsCode(props, `f${frameIdx}`);
       const imageCode = props.image ? this.generateImageFillCode(props.image, `f${frameIdx}`, props.imageScale) : '';
 
-      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap });
+      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap, autoTextStyle: this.autoTextStyle });
+      if (this.hasTextItems(children)) anyText = true;
 
       return `
         const f${frameIdx} = figma.createFrame();
@@ -682,10 +828,14 @@ export class FigmaClient {
       `;
     }).join('\n');
 
+    // Text styles cost a style query, so only pay for it when there is text.
+    const textStylePrelude = anyText ? TEXT_STYLE_PRELUDE : '';
+
     return `
       (async function() {
         ${fontLoads}
         ${LAYOUT_WARN_PRELUDE}
+        ${textStylePrelude}
         ${varLoadCode}
 
         // Calculate start position
@@ -713,8 +863,15 @@ export class FigmaClient {
         if (globalThis.__figHugFlush) globalThis.__figHugFlush();
         const layoutWarnings = globalThis.__layoutWarnings || [];
         globalThis.__layoutWarnings = [];
-        return (unresolved.length > 0 || layoutWarnings.length > 0)
-          ? { frames: results, unresolved, layoutWarnings }
+        const textStyles = {
+          applied: globalThis.__textStyleApplied || [],
+          warnings: globalThis.__textStyleWarnings || [],
+        };
+        globalThis.__textStyleApplied = [];
+        globalThis.__textStyleWarnings = [];
+        return (unresolved.length > 0 || layoutWarnings.length > 0 ||
+                textStyles.applied.length > 0 || textStyles.warnings.length > 0)
+          ? { frames: results, unresolved, layoutWarnings, textStyles }
           : results;
       })()
     `;
@@ -866,7 +1023,8 @@ export class FigmaClient {
     const known = {
       Frame: [...layout, ...paint, ...corners, ...effects],
       Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
-        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines'],
+        'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines',
+        'textStyle'],
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
       Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
@@ -887,6 +1045,7 @@ export class FigmaClient {
       background: 'bg', backgroundColor: 'bg',
       border: 'stroke', borderColor: 'stroke', borderWidth: 'strokeWidth',
       fontSize: 'size', fontWeight: 'weight', fontFamily: 'font', textAlign: 'align',
+      style: 'textStyle', typography: 'textStyle', textstyle: 'textStyle',
       spacing: 'gap', itemSpacing: 'gap',
       alignItems: 'items', justifyContent: 'justify',
       visibility: 'visible',
@@ -1301,6 +1460,18 @@ export class FigmaClient {
   }
 
   /**
+   * Does this tree contain any <Text>? Decides whether the text-style prelude
+   * (which queries the file's styles) is worth emitting at all.
+   */
+  hasTextItems(items) {
+    for (const item of items || []) {
+      if (item._type === 'text') return true;
+      if (item._children && this.hasTextItems(item._children)) return true;
+    }
+    return false;
+  }
+
+  /**
    * Generate Plugin API code for a list of parsed child elements.
    * Shared by the single-render path (generateCode) and the batch path
    * (parseJSXBatch) so both support the same child types and props.
@@ -1335,6 +1506,41 @@ export class FigmaClient {
           const tLetterSpacing = item.letterSpacing !== undefined ? dimUnit(item.letterSpacing) : null;
           const tTruncate = item.truncate === true || item.truncate === 'true';
           const tMaxLines = item.maxLines !== undefined ? parseInt(item.maxLines) : null;
+
+          // Text styles. `textStyle="Heading/H1"` names one explicitly; without
+          // it the file's styles are matched against this text's size + weight
+          // (see TEXT_STYLE_PRELUDE). Applied after `characters`, so the style
+          // wins over the raw props written above it.
+          //
+          // Nothing typographic may be written AFTERWARDS: measured against a
+          // live Figma, assigning fontSize / fontName / lineHeight /
+          // letterSpacing silently CLEARS textStyleId. A "CSS-style override"
+          // would therefore detach the very style it was overriding. Explicit
+          // props that disagree with the style are reported instead — the
+          // caller drops one of the two. textAlignHorizontal is safe (it is not
+          // part of a text style) and is the one thing still applied after.
+          const textStyleName = item.textStyle || item.textstyle || null;
+          // Rich text with per-range formatting is deliberate mixed typography;
+          // auto-matching a single style onto it would fight the ranges.
+          const hasStyledRuns = (item._runs || []).some(r => r.style && Object.keys(r.style).length);
+          const autoStyle = ctx.autoTextStyle !== false && !textStyleName && !hasStyledRuns;
+          const explicitTypography = {};
+          if (item.size !== undefined) explicitTypography.size = Number(size);
+          if (item.font !== undefined) explicitTypography.family = family;
+          if (item.weight !== undefined || item.italic !== undefined) explicitTypography.weightStyle = style;
+          if (item.lineHeight !== undefined) explicitTypography.lineHeight = true;
+          if (item.letterSpacing !== undefined) explicitTypography.letterSpacing = true;
+          const styleApplyCode = textStyleName
+            ? `await globalThis.__applyTextStyle(el${idx}, ${JSON.stringify(String(textStyleName))}, ${JSON.stringify(explicitTypography)});`
+            : autoStyle
+              ? `await globalThis.__autoTextStyle(el${idx}, ${JSON.stringify({
+                  size: Number(size), weightStyle: style, family,
+                  familyExplicit: item.font !== undefined,
+                })});`
+              : '';
+          const styleOverrideCode = styleApplyCode && tAlign
+            ? `el${idx}.textAlignHorizontal = '${tAlign}';`
+            : '';
 
           const runStyleCode = (item._runs || [])
             .filter(r => r.style && Object.keys(r.style).length)
@@ -1378,6 +1584,8 @@ export class FigmaClient {
         ${tLetterSpacing ? `try { el${idx}.letterSpacing = ${tLetterSpacing}; } catch(e) {}` : ''}
         ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
+        ${styleApplyCode}
+        ${styleOverrideCode}
         ${textFillCode.code}
         ${runStyleCode ? runStyleCode : ''}
         ${parentVar}.appendChild(el${idx});
@@ -1885,7 +2093,7 @@ export class FigmaClient {
     const collected = this.collectFontsAndVarUsage(children);
     if (collected.usesVars) usesVars = true;
 
-    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap });
+    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap, autoTextStyle: this.autoTextStyle });
 
     const { alignVal, justifyVal } = resolveAlign(flex, props);
 
@@ -1996,10 +2204,14 @@ export class FigmaClient {
     // Font loading with caching (shared emitter, includes __font helper)
     const fontLoadCode = this.generateFontLoadCode(collected.fonts);
 
+    // Text styles cost a style query, so only pay for it when there is text.
+    const textStylePrelude = this.hasTextItems(children) ? TEXT_STYLE_PRELUDE : '';
+
     return `
       (async function() {
         ${fontLoadCode}
         ${LAYOUT_WARN_PRELUDE}
+        ${textStylePrelude}
         ${varLoadCode}
         ${smartPosCode}
 
@@ -2054,8 +2266,15 @@ export class FigmaClient {
         if (globalThis.__figHugFlush) globalThis.__figHugFlush();
         const __layoutWarnings = globalThis.__layoutWarnings || [];
         globalThis.__layoutWarnings = [];
-        return (__unresolved.length > 0 || __layoutWarnings.length > 0)
-          ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings }
+        const __textStyles = {
+          applied: globalThis.__textStyleApplied || [],
+          warnings: globalThis.__textStyleWarnings || [],
+        };
+        globalThis.__textStyleApplied = [];
+        globalThis.__textStyleWarnings = [];
+        return (__unresolved.length > 0 || __layoutWarnings.length > 0 ||
+                __textStyles.applied.length > 0 || __textStyles.warnings.length > 0)
+          ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings, textStyles: __textStyles }
           : { id: frame.id, name: frame.name };
         } catch(e) {
           frame.remove();
@@ -3276,10 +3495,12 @@ export class FigmaClient {
         };
 
         // Get local styles that reference library
-        const paintStyles = figma.getLocalPaintStyles();
-        const textStyles = figma.getLocalTextStyles();
-        const effectStyles = figma.getLocalEffectStyles();
-        const gridStyles = figma.getLocalGridStyles();
+        const [paintStyles, textStyles, effectStyles, gridStyles] = await Promise.all([
+          figma.getLocalPaintStylesAsync(),
+          figma.getLocalTextStylesAsync(),
+          figma.getLocalEffectStylesAsync(),
+          figma.getLocalGridStylesAsync(),
+        ]);
 
         paintStyles.forEach(s => {
           styles.paint.push({ id: s.id, name: s.name, key: s.key, remote: s.remote });
@@ -3317,7 +3538,7 @@ export class FigmaClient {
   async applyLibraryStyle(nodeId, styleKey, styleType = 'fill') {
     return await this.eval(`
       (async function() {
-        const node = figma.getNodeById(${JSON.stringify(nodeId)});
+        const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!node) return { error: 'Node not found' };
 
         const style = await figma.importStyleByKeyAsync(${JSON.stringify(styleKey)});
@@ -3328,7 +3549,9 @@ export class FigmaClient {
         } else if (type === 'stroke' && 'strokeStyleId' in node) {
           node.strokeStyleId = style.id;
         } else if (type === 'text' && 'textStyleId' in node) {
-          node.textStyleId = style.id;
+          // Async setter: the sync assignment is rejected in dynamic-page
+          // documents, which is every document the plugin path sees.
+          await node.setTextStyleIdAsync(style.id);
         } else if (type === 'effect' && 'effectStyleId' in node) {
           node.effectStyleId = style.id;
         }

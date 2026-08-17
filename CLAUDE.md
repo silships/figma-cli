@@ -388,6 +388,32 @@ figma-cli set fill "var:primary"
 
 ---
 
+## Text Styles (textStyle= syntax)
+
+Colors bind through `var:`; typography binds through the file's **text styles**. A `<Text>` that names none is an island of hardcoded values — a style update in the file will never reach it, and `figma-cli analyze` reports it as missing a style.
+
+```bash
+figma-cli styles          # what this file has: name, family, weight, size
+```
+
+```jsx
+<Text textStyle="Heading/H1">Title</Text>
+<Text textStyle="H1">Title</Text>              // the part after the last "/" works too
+<Text textStyle="Body/M" color="var:foreground">Copy</Text>
+```
+
+**Without `textStyle=`, the style is matched automatically** — but only when exactly one style shares this text's font size and weight. Several matches or none: nothing is applied and the render says why. `--no-auto-style` turns the matching off; `textStyle=` keeps working either way.
+
+The font family only has to match when you wrote `font=` yourself. `<Text size={36} weight="bold">` therefore finds a 36px Bold style in any family — the default "Inter" is a fallback, not a choice.
+
+**The style wins over explicit typography props, and that is not a choice.** Writing `fontSize`, `fontName`, `lineHeight` or `letterSpacing` onto a styled text node CLEARS `textStyleId` in Figma — an "override" would detach the style it overrides. So `<Text textStyle="Body/M" size={20}>` keeps `Body/M`, ignores the size, and says so. Want the other size? Use the style that has it, or drop `textStyle=`. `align` is unaffected (it is not part of a text style) and still applies.
+
+Rich text with per-range formatting (`<b>`, `<i>`, per-run props) is skipped by the automatic matching — mixed typography is deliberate.
+
+Library (remote) styles resolve by name too, as long as the document already uses them somewhere — Figma exposes remote styles by key only, so styles nobody has used yet are invisible to any plugin.
+
+---
+
 ## Connection Modes
 
 **Yolo Mode (Recommended):** `figma-cli connect` - Patches Figma Desktop once, fully automatic.

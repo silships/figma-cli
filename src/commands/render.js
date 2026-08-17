@@ -62,6 +62,30 @@ function printLayoutWarnings(warnings) {
   console.log(chalk.gray('  Fix: give the parent a fixed size on that axis, or drop the fill from the child.'));
 }
 
+/**
+ * Report which text styles the render bound, and which it could not.
+ *
+ * Without this the whole feature is invisible: a text that silently kept its
+ * hardcoded 14px Inter looks exactly like one that picked up "Body/S".
+ */
+function printTextStyles(textStyles) {
+  if (!textStyles) return;
+  const applied = textStyles.applied || [];
+  const warnings = textStyles.warnings || [];
+  if (applied.length > 0) {
+    const counts = new Map();
+    for (const n of applied) counts.set(n, (counts.get(n) || 0) + 1);
+    const summary = [...counts.entries()]
+      .map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ');
+    console.log(chalk.gray(`  text styles: ${summary}`));
+  }
+  if (warnings.length > 0) {
+    console.log(chalk.yellow(`\n⚠ ${warnings.length} text style issue(s):`));
+    for (const w of warnings) console.log(chalk.yellow('  ' + w));
+    console.log(chalk.gray('  `figma-cli styles` lists what this file has.'));
+  }
+}
+
 // Remember what the last render created so `figma-cli undo` can remove
 // exactly those nodes. CLI-side state file: covers every render path
 // (eval-based, daemon render, render-batch) and survives daemon restarts.
@@ -147,6 +171,7 @@ program
   .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `figma-cli verify` roundtrip')
+  .option('--no-auto-style', "Don't auto-apply a matching text style to <Text> that names none (textStyle= still works)")
   .action(async (rawJsx, options) => {
     const jsx = unescapeShell(rawJsx);
     warnUnknownProps([jsx]);
@@ -215,6 +240,7 @@ program
       const { FigmaClient } = await import('../figma-client.js');
       const client = new FigmaClient();
       if (options.collection) client.setCollection(options.collection);
+      if (options.autoStyle === false) client.setAutoTextStyle(false);
       const code = await client.parseJSX(jsx, {
         x: posX,
         y: options.y !== undefined ? posY : undefined,
@@ -229,6 +255,7 @@ program
       if (result.name) console.log(chalk.gray('  name: ' + result.name));
       printUnresolvedVars(result.unresolved);
       printLayoutWarnings(result.layoutWarnings);
+      printTextStyles(result.textStyles);
       recordCreated([result]);
 
       await maybeAsComponent(result.id);
@@ -262,6 +289,7 @@ program
   .option('--as-component', 'After rendering, convert each resulting frame to a Figma component')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
+  .option('--no-auto-style', "Don't auto-apply a matching text style to <Text> that names none (textStyle= still works)")
   .action(async (jsxArrayStr, options) => {
     await checkConnection();
     try {
@@ -280,13 +308,16 @@ program
         gap,
         vertical,
         collection: options.collection || undefined,
+        autoStyle: options.autoStyle === false ? false : undefined,
       });
       // Unwrap the wrapped form returned when there are warnings to report.
       let unresolvedVars = null;
       let layoutWarnings = null;
+      let textStyles = null;
       if (results && !Array.isArray(results) && Array.isArray(results.frames)) {
         unresolvedVars = results.unresolved;
         layoutWarnings = results.layoutWarnings;
+        textStyles = results.textStyles;
         results = results.frames;
       }
 
@@ -298,6 +329,7 @@ program
         recordCreated(results);
         printUnresolvedVars(unresolvedVars);
         printLayoutWarnings(layoutWarnings);
+        printTextStyles(textStyles);
 
         if (options.asComponent) {
           const ids = results.map(r => r.id).filter(Boolean);

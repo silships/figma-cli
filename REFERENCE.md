@@ -164,6 +164,15 @@ node src/index.js node to-component "1:234"    # Convert to component
 node src/index.js node delete "1:234"          # Delete by ID
 ```
 
+## Text Styles
+
+```bash
+node src/index.js styles                       # List the file's text styles
+node src/index.js styles --json                # Same, machine-readable
+```
+
+Use the names in JSX: `<Text textStyle="Heading/H1">`. The tail of a slash-grouped name works too (`textStyle="H1"`). A `<Text>` without `textStyle=` gets a style automatically when exactly one matches its size and weight — `render --no-auto-style` disables that. The style wins over `size`/`weight`/`font`/`lineHeight`/`letterSpacing`: writing those onto a styled node clears `textStyleId` in Figma, so conflicting props are reported instead of applied. `align` is not part of a text style and still applies.
+
 ## Slots
 
 Figma's native slots feature for flexible content areas in components.
