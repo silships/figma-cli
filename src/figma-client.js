@@ -7,6 +7,7 @@
 
 import WebSocket from 'ws';
 import { getCdpPort } from './figma-patch.js';
+import { resolveLeafSizing, resolveRootFill } from './lib/fill-sizing.js';
 
 /**
  * Visible fallback colors for shadcn semantic token names (Zinc light theme).
@@ -1637,8 +1638,14 @@ export class FigmaClient {
           })();` : ''}`;
         } else if (item._type === 'rect') {
           // Rectangle element
-          const rWidth = item.w || item.width || 100;
-          const rHeight = item.h || item.height || 100;
+          const rectParentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
+          const rectSizing = resolveLeafSizing({
+            // `|| undefined` keeps the old falsy-means-default behaviour.
+            w: (item.w || item.width) || undefined, h: (item.h || item.height) || undefined,
+            defaultW: 100, defaultH: 100, parentIsNone: rectParentNone,
+          });
+          const rWidth = rectSizing.resizeW;
+          const rHeight = rectSizing.resizeH;
           const rBg = item.bg || item.fill || '#e4e4e7';
           const rRounded = item.rounded || item.radius || 0;
           const rName = item.name || 'Rectangle';
@@ -1651,13 +1658,20 @@ export class FigmaClient {
         el${idx}.cornerRadius = ${rRounded};
         ${rectFillCode.code}
         ${parentVar}.appendChild(el${idx});
-        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
+        ${this.genLeafFillCode(rectSizing, `el${idx}`)}
+        ${this.genCommonNodeProps(item, `el${idx}`, rectParentNone)}`;
         } else if (item._type === 'ellipse') {
           // Ellipse / Circle. arc (sweep degrees) + arcStart (start degrees,
           // 0 = 3 o'clock, clockwise) + innerRadius (0–1) make rings, spinners,
           // donut and pie slices. No arc/innerRadius = a plain filled ellipse.
-          const eW = item.w || item.width || 100;
-          const eH = item.h || item.height || eW;
+          const ellParentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
+          const ellSizing = resolveLeafSizing({
+            w: (item.w || item.width) || undefined, h: (item.h || item.height) || undefined,
+            defaultW: 100, defaultH: (item.w || item.width) === 'fill' ? 100 : ((item.w || item.width) || 100),
+            parentIsNone: ellParentNone,
+          });
+          const eW = ellSizing.resizeW;
+          const eH = ellSizing.resizeH;
           const eName = item.name || 'Ellipse';
           const eBg = item.bg || item.fill || null;
           const eStroke = item.stroke || null;
@@ -1679,11 +1693,17 @@ export class FigmaClient {
         ${ellStrokeCode.code}
         ${hasArc ? `try { el${idx}.arcData = { startingAngle: ${startRad}, endingAngle: ${endRad}, innerRadius: ${inner} }; } catch(e) {}` : ''}
         ${parentVar}.appendChild(el${idx});
-        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
+        ${this.genLeafFillCode(ellSizing, `el${idx}`)}
+        ${this.genCommonNodeProps(item, `el${idx}`, ellParentNone)}`;
         } else if (item._type === 'image') {
           // Image placeholder (gray rectangle with image icon concept)
-          const iWidth = item.w || item.width || 200;
-          const iHeight = item.h || item.height || 150;
+          const imgParentNone = parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free';
+          const imgSizing = resolveLeafSizing({
+            w: (item.w || item.width) || undefined, h: (item.h || item.height) || undefined,
+            defaultW: 200, defaultH: 150, parentIsNone: imgParentNone,
+          });
+          const iWidth = imgSizing.resizeW;
+          const iHeight = imgSizing.resizeH;
           const iBg = item.bg || '#f4f4f5';
           const iRounded = item.rounded || item.radius || 8;
           const iName = item.name || 'Image';
@@ -1696,7 +1716,8 @@ export class FigmaClient {
         el${idx}.cornerRadius = ${iRounded};
         ${imgFillCode.code}
         ${parentVar}.appendChild(el${idx});
-        ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
+        ${this.genLeafFillCode(imgSizing, `el${idx}`)}
+        ${this.genCommonNodeProps(item, `el${idx}`, imgParentNone)}`;
         } else if (item._type === 'icon') {
           const icSize = item.size || item.s || 24;
           const icBg = item.color || item.c || '#71717a';
@@ -1996,6 +2017,10 @@ export class FigmaClient {
     // Font loading with caching (shared emitter, includes __font helper)
     const fontLoadCode = this.generateFontLoadCode(collected.fonts);
 
+    // w/h="fill" on the ROOT frame: only meaningful inside an auto-layout
+    // parent, and only settable after appendChild (which runs last, below).
+    const rootFill = resolveRootFill({ fillWidth, fillHeight, hasParent: !!opts.parent, name });
+
     return `
       (async function() {
         ${fontLoadCode}
@@ -2004,8 +2029,13 @@ export class FigmaClient {
         ${smartPosCode}
 
         let __currentNode = 'root';
+        // Declared OUTSIDE the try on purpose: the catch below cleans the frame
+        // up, and a const inside the try is not in scope there. That shadowing
+        // turned every render failure into "ReferenceError: frame is not
+        // defined" and left the half-built frame on the canvas.
+        let frame;
         try {
-        const frame = figma.createFrame();
+        frame = figma.createFrame();
         __currentNode = ${JSON.stringify(name)};
         frame.name = ${JSON.stringify(name)};
         frame.resize(${width}, ${height});
@@ -2027,8 +2057,6 @@ export class FigmaClient {
         frame.counterAxisAlignItems = '${alignVal}';
         frame.primaryAxisSizingMode = '${flex === 'col' ? (hugHeight || fillHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED') : (hugWidth || fillWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED')}';
         frame.counterAxisSizingMode = '${flex === 'col' ? (hugWidth || fillWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED') : (hugHeight || fillHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED')}';
-        ${fillWidth ? `frame.layoutSizingHorizontal = 'FILL';` : ''}
-        ${fillHeight ? `frame.layoutSizingVertical = 'FILL';` : ''}
         ${wrap && flex === 'row' && wrapGap > 0 ? `frame.counterAxisSpacing = ${wrapGap};` : ''}`}
         ${generateMinMaxCode('frame', props)}
         frame.clipsContent = ${clip};
@@ -2044,7 +2072,18 @@ export class FigmaClient {
         const __p = await figma.getNodeByIdAsync(${JSON.stringify(String(opts.parent))});
         if (!__p) throw new Error('Parent not found: ' + ${JSON.stringify(String(opts.parent))});
         if (!('appendChild' in __p)) throw new Error('Parent cannot contain children: ' + __p.type);
-        __p.appendChild(frame);` : ''}
+        __p.appendChild(frame);
+        ${rootFill.applyAfterAppend ? `
+        // w/h="fill" can only be set once the frame HAS a parent, and only if
+        // that parent uses auto-layout — hence here and not up with the other
+        // sizing props.
+        if (__p.layoutMode && __p.layoutMode !== 'NONE') {
+          ${fillWidth ? `frame.layoutSizingHorizontal = 'FILL';` : ''}
+          ${fillHeight ? `frame.layoutSizingVertical = 'FILL';` : ''}
+        } else {
+          globalThis.__layoutWarnings.push(${JSON.stringify(`"${name}" fills ${[fillWidth && 'width', fillHeight && 'height'].filter(Boolean).join(' and ')}, but the --parent frame has no auto-layout`)});
+        }` : ''}` : ''}
+        ${rootFill.warnings.map(w => `globalThis.__layoutWarnings.push(${JSON.stringify(w)});`).join('\n        ')}
 
         // Surface unresolved var: references like the batch path does, so a
         // themed render that fell back to grey is visible to the caller.
@@ -2058,7 +2097,9 @@ export class FigmaClient {
           ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings }
           : { id: frame.id, name: frame.name };
         } catch(e) {
-          frame.remove();
+          // Guarded: createFrame() itself can throw, and a remove() that fails
+          // must not replace the real error.
+          if (frame) { try { frame.remove(); } catch (e2) {} }
           throw new Error('[Node: ' + __currentNode + '] ' + e.message);
         }
       })()
@@ -2365,6 +2406,21 @@ export class FigmaClient {
    * auto-layout), so we set x/y directly. In an auto-layout parent, position=
    * "absolute" maps to layoutPositioning='ABSOLUTE' + x/y.
    */
+  /**
+   * FILL sizing for a leaf node (Rectangle / Ellipse / Image). Mirrors what a
+   * Frame child does: emitted AFTER appendChild, because layoutSizing* only
+   * exists once the node sits in an auto-layout parent. Before this, `w="fill"`
+   * reached `resize()` as the string "fill" and the render died.
+   * @param {{fillH:boolean, fillV:boolean}} sizing from resolveLeafSizing()
+   */
+  genLeafFillCode(sizing, varName) {
+    if (!sizing || (!sizing.fillH && !sizing.fillV)) return '';
+    const parts = [];
+    if (sizing.fillH) parts.push(`${varName}.layoutSizingHorizontal = 'FILL';`, `globalThis.__figHugWarn(${varName}, 'H');`);
+    if (sizing.fillV) parts.push(`${varName}.layoutSizingVertical = 'FILL';`, `globalThis.__figHugWarn(${varName}, 'V');`);
+    return parts.join('\n        ');
+  }
+
   genCommonNodeProps(item, varName, parentIsNone) {
     const parts = [];
     if (item.opacity !== undefined && item.opacity !== null) parts.push(`${varName}.opacity = ${Number(item.opacity)};`);

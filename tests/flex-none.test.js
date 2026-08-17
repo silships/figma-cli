@@ -27,7 +27,7 @@ describe('flex="none" z-stack', () => {
     // first literal 'NONE' anywhere in the file also caught the runtime prelude,
     // which legitimately mentions primaryAxisSizingMode while inspecting a
     // node's PARENT — a false failure about code that isn't the frame's.
-    const start = code.indexOf('const frame = figma.createFrame');
+    const start = code.indexOf('frame = figma.createFrame');
     assert.ok(start > -1, 'root frame block not found');
     const frameStmts = code
       .slice(start)
