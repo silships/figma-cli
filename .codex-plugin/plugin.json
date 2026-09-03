@@ -1,0 +1,32 @@
+{
+  "name": "figma-cli",
+  "version": "2.1.2",
+  "description": "Build and edit designs directly in Figma Desktop from your terminal. Render frames, manage design tokens, extract design systems, run accessibility audits, and more through a local connection with no API key.",
+  "author": {
+    "name": "Sil Bormüller",
+    "url": "https://intodesignsystems.com"
+  },
+  "homepage": "https://github.com/silships/figma-cli",
+  "repository": "https://github.com/silships/figma-cli",
+  "license": "MIT",
+  "keywords": [
+    "figma",
+    "design-system",
+    "design-tokens",
+    "variables",
+    "components",
+    "cli"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Figma CLI",
+    "shortDescription": "Build and edit designs directly in Figma.",
+    "longDescription": "Use Codex to build and edit designs directly in Figma Desktop through the local figma-cli connection.",
+    "developerName": "Sil Bormüller",
+    "category": "Design",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Connect to Figma and help me build a design."
+    ]
+  }
+}

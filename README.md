@@ -8,6 +8,7 @@
   <img src="https://img.shields.io/badge/No_Rate_Limits-✓-green" alt="No Rate Limits">
   <img src="https://img.shields.io/badge/Works_in-Claude_Code-D97757?logo=claude&logoColor=white" alt="Works in Claude Code">
   <a href="#using-cursor"><img src="https://img.shields.io/badge/Works_in-Cursor-000000?logo=cursor&logoColor=white" alt="Works in Cursor"></a>
+  <a href="#using-codex"><img src="https://img.shields.io/badge/Works_in-Codex-000000?logo=openai&logoColor=white" alt="Works in Codex"></a>
   <a href="https://www.linkedin.com/in/silbormueller"><img src="https://img.shields.io/badge/Built_by-Sil_Bormüller-0A66C2?logo=linkedin&logoColor=white" alt="Built by Sil Bormüller"></a>
 </p>
 
@@ -90,6 +91,26 @@ supplies the know-how; the local CLI does the work.
 
 ---
 
+## Using Codex
+
+Codex uses the same skill already included in this repo. Add the marketplace and
+install the plugin with:
+
+```
+codex plugin marketplace add silships/figma-cli
+codex plugin add figma-cli@intodesignsystems
+```
+
+The plugin teaches Codex how to drive figma-cli. The **CLI itself still needs
+Node ≥ 18 and its dependencies**, so clone this repo and run `npm install` once.
+Then open Figma Desktop and ask Codex to connect to Figma.
+
+For project-only guidance without the plugin, run
+`figma-cli init-agent --tool codex`. It adds the existing figma-cli rules to an
+`AGENTS.md` without touching any `CLAUDE.md` or Cursor rules.
+
+---
+
 ## Using Cursor
 
 Prefer **Cursor**? It works exactly the same , the CLI controls Figma Desktop, not your editor, so nothing about it is Claude-only. Most people use Claude Code, but if Cursor is your tool, here's the whole setup.
@@ -116,7 +137,7 @@ Same as Claude Code , describe what you want:
 
 Cursor builds it in Figma instantly.
 
-**Already set up in a project and just want the Cursor rules?** Run `figma-cli init-agent` yourself , it writes the Cursor rules **and** an `AGENTS.md` (which Claude Code and Cursor both read), without touching any existing `CLAUDE.md`.
+**Already set up in a project and just want the Cursor rules?** Run `figma-cli init-agent` yourself , it writes the Cursor rules **and** an `AGENTS.md` (which Claude Code, Cursor and Codex read), without touching any existing `CLAUDE.md`.
 
 ---
 
@@ -354,7 +375,7 @@ Prefer to keep everything on your machine? figma-cli also works with **local LLM
 - Recreate a live webpage in Figma from a URL
 
 **🤖 Built for AI (6)**
-- Works with **Claude Code** or **Cursor** , one `figma-cli init-agent` sets up the rules for both
+- Works with **Claude Code**, **Cursor** or **Codex** , one `figma-cli init-agent` sets up the rules for all three
 - Works with **Claude**, or local LLMs via **LM Studio / Ollama** (fully offline)
 - Ships the entire **Figma Plugin API spec offline** so the AI can self-discover
 - Self-corrects when a command needs a different approach

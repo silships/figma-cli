@@ -1,5 +1,5 @@
 // Command: init — scaffold agent guidance into a designer's project so figma-cli
-// "just works" with whichever AI coding tool they use (Claude Code or Cursor).
+// "just works" with whichever AI coding tool they use (Claude Code, Cursor, or Codex).
 // Writes the SAME condensed usage ruleset to:
 //   - .cursor/rules/figma-cli.mdc   (Cursor)
 //   - AGENTS.md                     (Claude Code, Cursor, Codex all read it)
@@ -77,8 +77,8 @@ function writeFile(path, content, force) {
 
 program
   .command('init-agent')
-  .description('Scaffold agent rules so figma-cli works out of the box in Claude Code & Cursor')
-  .option('--tool <tool>', 'claude | cursor | both', 'both')
+  .description('Scaffold agent rules so figma-cli works out of the box in Claude Code, Cursor & Codex')
+  .option('--tool <tool>', 'claude | cursor | codex | both', 'both')
   .option('--force', 'overwrite existing figma-cli rule files')
   .action((options) => {
     const tool = String(options.tool).toLowerCase();
@@ -89,7 +89,7 @@ program
       const mdc = `---\ndescription: How to drive figma-cli (controls Figma Desktop) from this project\nalwaysApply: true\n---\n\n${RULES_BODY}`;
       results.push(writeFile(join(cwd, '.cursor', 'rules', 'figma-cli.mdc'), mdc, options.force));
     }
-    if (tool === 'claude' || tool === 'both') {
+    if (tool === 'claude' || tool === 'codex' || tool === 'both') {
       // AGENTS.md is read by Claude Code, Cursor and Codex — one file, all tools.
       results.push(writeFile(join(cwd, 'AGENTS.md'), RULES_BODY, options.force));
     }
@@ -100,6 +100,6 @@ program
       else if (r.status === 'up-to-date') console.log(chalk.gray('• up-to-date'), rel);
       else console.log(chalk.yellow('• exists (use --force to overwrite)'), rel);
     }
-    console.log(chalk.gray('\nDesigners can now ask Claude Code or Cursor to build in Figma — the agent knows the rules.'));
+    console.log(chalk.gray('\nDesigners can now ask Claude Code, Cursor or Codex to build in Figma. The agent knows the rules.'));
     console.log(chalk.gray('Next: open Figma Desktop and run `figma-cli connect`.'));
   });
