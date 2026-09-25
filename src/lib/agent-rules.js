@@ -10,6 +10,7 @@
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
+import { homedir } from 'os';
 
 // The shared, designer-facing usage rules. Kept tight on purpose — an agent
 // needs the operating rules, not the CLI's internals.
@@ -177,8 +178,27 @@ export function syncRulesFile(path, fresh, { create = true, force = false } = {}
   return { path, status: 'exists' };  // unrelated file: never touch it
 }
 
-// Refresh the rules files in dir that already exist. Used by `connect`.
+// Refresh the rules files in dir that already exist.
 export function refreshRules(dir) {
   return RULE_FILES.map(f => syncRulesFile(join(dir, f.rel), f.fresh, { create: false }))
     .filter(r => r.status === 'updated');
+}
+
+// A folder someone works in with an AI tool, not the home directory or a
+// random place: it has version control, a package, or agent instructions.
+export function looksLikeProject(dir, home = homedir()) {
+  if (!dir || dir === home || dir === '/') return false;
+  return ['.git', 'package.json', 'CLAUDE.md', 'AGENTS.md', '.cursor'].some(f => existsSync(join(dir, f)));
+}
+
+// Used by `connect`: refresh outdated copies, and give a project that has no
+// AGENTS.md one, so users get the agent rules without running init-agent.
+// Never writes outside a project folder.
+export function ensureRules(dir, { home = homedir() } = {}) {
+  const changed = refreshRules(dir);
+  const agents = RULE_FILES.find(f => f.rel === 'AGENTS.md');
+  if (looksLikeProject(dir, home) && !existsSync(join(dir, agents.rel))) {
+    changed.push(syncRulesFile(join(dir, agents.rel), agents.fresh));
+  }
+  return changed;
 }

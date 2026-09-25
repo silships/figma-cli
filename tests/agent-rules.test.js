@@ -47,3 +47,31 @@ test('refreshRules updates existing copies and creates nothing', () => {
   writeFileSync(join(d, 'AGENTS.md'), '<!-- figma-cli rules 0000000000 -->\nold\n<!-- /figma-cli rules -->\n');
   assert.equal(refreshRules(d).length, 1);
 });
+
+import { mkdirSync } from 'fs';
+import { ensureRules, looksLikeProject } from '../src/lib/agent-rules.js';
+
+test('connect writes AGENTS.md into a project folder that has none', () => {
+  const d = dir(); mkdirSync(join(d, '.git'));
+  const r = ensureRules(d, { home: '/nonexistent-home' });
+  assert.equal(r.length, 1);
+  assert.equal(r[0].status, 'written');
+  assert.ok(readFileSync(join(d, 'AGENTS.md'), 'utf8').includes(RULES_HASH));
+  assert.equal(ensureRules(d, { home: '/nonexistent-home' }).length, 0);
+});
+
+test('connect never writes outside a project or into the home folder', () => {
+  const plain = dir();
+  assert.equal(looksLikeProject(plain, '/nonexistent-home'), false);
+  assert.equal(ensureRules(plain, { home: '/nonexistent-home' }).length, 0);
+  assert.equal(existsSync(join(plain, 'AGENTS.md')), false);
+  const home = dir(); mkdirSync(join(home, '.git'));
+  assert.equal(ensureRules(home, { home }).length, 0);
+  assert.equal(existsSync(join(home, 'AGENTS.md')), false);
+});
+
+test('an unrelated AGENTS.md in a project is left alone', () => {
+  const d = dir(); writeFileSync(join(d, 'package.json'), '{}'); writeFileSync(join(d, 'AGENTS.md'), '# Team\n');
+  assert.equal(ensureRules(d, { home: '/nonexistent-home' }).length, 0);
+  assert.equal(readFileSync(join(d, 'AGENTS.md'), 'utf8'), '# Team\n');
+});

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.2.1 (2026-09-25)
+
+### Added: new versions reach users without extra steps
+
+- figma-cli tells you once a day when a newer version is on npm, with the command to update. The hint goes to stderr so scripts that read stdout are not affected. Turn it off with `FIGMA_CLI_NO_UPDATE_CHECK=1`
+- `figma-cli connect` writes `AGENTS.md` into a project folder that has none yet (a folder with `.git` or `package.json` or `CLAUDE.md` or `.cursor`). It never writes into the home folder or a folder that is not a project
+
 ## 2.2.0 (2026-09-25)
 
 ### Added: AI agents finish Figma tasks in fewer calls

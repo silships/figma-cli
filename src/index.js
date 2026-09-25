@@ -15,6 +15,7 @@
 // complete. Correctness first, speed only on the path we can be sure about.
 import { program } from './lib/cli-core.js';
 import { ALL, COMMAND_MODULES } from './lib/command-map.js';
+import { runUpdateCheck } from './lib/update-check.js';
 
 const load = (names) =>
   Promise.all(names.map((n) => import(`./commands/${n}.js`)));
@@ -27,5 +28,9 @@ const load = (names) =>
 // (`figma-cli find "render"`) can never win over the real command.
 const invoked = process.argv.slice(2).find((arg) => COMMAND_MODULES[arg]);
 await load(invoked ? COMMAND_MODULES[invoked] : ALL);
+
+// Never awaited on the network: reads a cached answer, refreshes it in a
+// detached process at most once a day. See lib/update-check.js.
+runUpdateCheck();
 
 program.parse();
