@@ -55,11 +55,79 @@ function printUnresolvedVars(unresolved) {
  * with no error anywhere. Saying it out loud is the difference between a
  * two-second fix and re-deriving the same auto-layout bug from scratch.
  */
+// Notes from the in-Figma helpers: a missing font replaced, a style or
+// variant that was not found. One line each, so an agent does not have to
+// rediscover them by inspecting the result.
+// The structure render actually built (layout, sizes, bindings, instances), so
+// an agent can confirm the result without a second call to read it back.
+function printSummary(summary, fallbackName) {
+  if (summary) { for (const line of String(summary).split('\n')) console.log('  ' + line); }
+  else if (fallbackName) console.log(chalk.gray('  name: ' + fallbackName));
+}
+
+function printNotes(notes) {
+  for (const n of notes || []) console.log(chalk.yellow('note: ' + n));
+}
+
+// --page: switch to the page (creating it when missing) before rendering.
+async function switchToPage(name) {
+  if (!name) return;
+  const { HELPERS_SOURCE } = await import('../lib/figma-helpers.js');
+  await daemonExec('eval', { code: `(async () => { ${HELPERS_SOURCE}\n const p = await globalThis.__figHelpers.page(${JSON.stringify(String(name))}); return p.id; })()` });
+}
+
 function printLayoutWarnings(warnings) {
   if (!warnings || warnings.length === 0) return;
   console.log(chalk.yellow(`\n⚠ ${warnings.length} auto-layout problem(s):`));
   for (const w of warnings) console.log(chalk.yellow('  ' + w));
   console.log(chalk.gray('  Fix: give the parent a fixed size on that axis, or drop the fill from the child.'));
+}
+
+// --variant-set: frames -> components -> one component set, in the same call.
+// Without it an agent needed render-batch --as-component plus
+// `variants from --multi`, and usually a --help round to find the second one.
+// Names are validated first so Figma never invents "Property 1" axes.
+async function combineIntoVariantSet(ids, setName) {
+  const { HELPERS_SOURCE } = await import('../lib/figma-helpers.js');
+  const r = await daemonExec('eval', { code: `(async () => {
+    ${HELPERS_SOURCE}
+    const nodes = [];
+    for (const id of ${JSON.stringify(ids)}) { const n = await figma.getNodeByIdAsync(id); if (n) nodes.push(n); }
+    const parse = name => { const o = {}; for (const part of name.split(',')) { const i = part.indexOf('='); if (i <= 0) return null; o[part.slice(0, i).trim()] = part.slice(i + 1).trim(); } return o; };
+    const props = nodes.map(n => parse(n.name));
+    const bad = nodes.filter((n, i) => !props[i]).map(n => n.name);
+    if (bad.length) throw new Error('Name every frame by its variant, e.g. name="size=small, state=hover". Not variant names: ' + bad.join(' | '));
+    const axes = Object.keys(props[0]).sort().join(',');
+    const off = nodes.filter((n, i) => Object.keys(props[i]).sort().join(',') !== axes).map(n => n.name);
+    if (off.length) throw new Error('All variants need the same properties (' + axes + '). Different: ' + off.join(' | '));
+    const keys = props.map(p => Object.keys(p).sort().map(k => k + '=' + p[k]).join(', '));
+    const dup = keys.filter((k, i) => keys.indexOf(k) !== i);
+    if (dup.length) throw new Error('Duplicate variants: ' + [...new Set(dup)].join(' | '));
+    const parent = nodes[0].parent, x = Math.min(...nodes.map(n => n.x)), y = Math.min(...nodes.map(n => n.y));
+    const comps = nodes.map(n => n.type === 'COMPONENT' ? n : figma.createComponentFromNode(n));
+    const set = figma.combineAsVariants(comps, parent);
+    set.name = ${JSON.stringify(String(setName))};
+    // grid: one row per value of the first axis, 24px gaps, 24px padding
+    const first = Object.keys(props[0])[0];
+    const rows = [...new Set(comps.map(c => c.variantProperties[first]))];
+    let yy = 24;
+    for (const val of rows) {
+      const row = comps.filter(c => c.variantProperties[first] === val);
+      let xx = 24, h = 0;
+      for (const c of row) { c.x = xx; c.y = yy; xx += c.width + 24; h = Math.max(h, c.height); }
+      yy += h + 24;
+    }
+    const w = Math.max(...comps.map(c => c.x + c.width)) + 24, hh = Math.max(...comps.map(c => c.y + c.height)) + 24;
+    set.resizeWithoutConstraints(w, hh);
+    set.x = x; set.y = y;
+    return { id: set.id, name: set.name, variants: comps.length, axes: Object.fromEntries(Object.entries(set.variantGroupProperties).map(([k, v]) => [k, v.values])),
+      summary: await globalThis.__figHelpers.describe(set, 2, 60).catch(() => null) };
+  })()` });
+  console.log(chalk.green(`✓ Component set: ${r.id} (${r.name}), ${r.variants} variants`));
+  for (const [k, v] of Object.entries(r.axes || {})) console.log(chalk.gray(`  ${k}: ${v.join(', ')}`));
+  printSummary(r.summary);
+  recordCreated([{ id: r.id, name: r.name }]);
+  return r;
 }
 
 // Remember what the last render created so `figma-cli undo` can remove
@@ -139,6 +207,7 @@ program
   .command('render <jsx>')
   .description('Render JSX to Figma (use --as-component to also convert result to a Figma component)')
   .option('--parent <id>', 'Parent node ID')
+  .option('--page <name>', 'Render on this page (switches to it, creates it when missing)')
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -151,6 +220,7 @@ program
     const jsx = unescapeShell(rawJsx);
     warnUnknownProps([jsx]);
     await checkConnection();
+    await switchToPage(options.page);
 
     // Auto-split: if the caller passed a layout-only outer Frame with N child
     // Frames, treat it as render-batch. This is the canonical "N buttons / N
@@ -226,9 +296,10 @@ program
       }
 
       console.log(chalk.green('✓ Rendered: ' + result.id));
-      if (result.name) console.log(chalk.gray('  name: ' + result.name));
+      printSummary(result.summary, result.name);
       printUnresolvedVars(result.unresolved);
       printLayoutWarnings(result.layoutWarnings);
+      printNotes(result.notes);
       recordCreated([result]);
 
       await maybeAsComponent(result.id);
@@ -257,12 +328,15 @@ program
   .command('render-batch')
   .description('Render multiple JSX frames in a single call (fast). Pass --as-component to promote each rendered frame to a Figma Component.')
   .argument('<jsxArray>', 'JSON array of JSX strings, e.g. \'["<Frame>...</Frame>","<Frame>...</Frame>"]\'')
+  .option('--page <name>', 'Render on this page (switches to it, creates it when missing)')
   .option('-g, --gap <n>', 'Gap between frames', '40')
   .option('-d, --direction <dir>', 'Layout direction: row (horizontal) or col (vertical)', 'row')
   .option('--as-component', 'After rendering, convert each resulting frame to a Figma component')
+  .option('--variant-set <name>', 'Combine the rendered frames into ONE component set. Name each frame by its variant, e.g. name="size=small, state=hover"')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
   .action(async (jsxArrayStr, options) => {
+    await switchToPage(options.page);
     await checkConnection();
     try {
       const jsxArray = JSON.parse(jsxArrayStr);
@@ -284,22 +358,29 @@ program
       // Unwrap the wrapped form returned when there are warnings to report.
       let unresolvedVars = null;
       let layoutWarnings = null;
+      let batchNotes = null;
       if (results && !Array.isArray(results) && Array.isArray(results.frames)) {
         unresolvedVars = results.unresolved;
         layoutWarnings = results.layoutWarnings;
+        batchNotes = results.notes;
         results = results.frames;
       }
 
       if (Array.isArray(results)) {
         results.forEach(r => {
           console.log(chalk.green('✓ Rendered: ' + r.id + (r.name ? ' (' + r.name + ')' : '')));
+          // with --variant-set the set is summarized once, after combining
+          if (!options.variantSet) printSummary(r.summary);
         });
         console.log(chalk.cyan(`\n${results.length} frames created`));
         recordCreated(results);
         printUnresolvedVars(unresolvedVars);
         printLayoutWarnings(layoutWarnings);
+        printNotes(batchNotes);
 
-        if (options.asComponent) {
+        if (options.variantSet) {
+          await combineIntoVariantSet(results.map(r => r.id).filter(Boolean), options.variantSet);
+        } else if (options.asComponent) {
           const ids = results.map(r => r.id).filter(Boolean);
           if (ids.length > 0) {
             try {

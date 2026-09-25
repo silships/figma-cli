@@ -16,6 +16,10 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "create a rectangle/frame" | `figma-cli render '<Frame>...'` |
 | "convert to component" | `figma-cli node to-component "ID"` |
 | "use the existing X component" / "don't rebuild, instance it" | `figma-cli instantiate "X"` |
+| "put a Button / any existing component into this frame" | `<Instance component="Button" variant="size=large" text="Save" />` inside `render` |
+| "build it on page X" | `figma-cli render --page "X" '<Frame>…'` (creates the page when missing) |
+| "make a component set with these variants" | `figma-cli render-batch '["<Frame name=\"size=small, state=hover\" …>", …]' --variant-set Button` |
+| "use text style / effect style X" | `<Text textStyle="Body/Medium">`, `<Frame effectStyle="shadow/small">` |
 | "what component already exists for X" | `figma-cli spec X` (shows the reuse handle) |
 | "list variables" | `figma-cli var list` |
 | "find nodes named X" | `figma-cli find "X"` |
@@ -74,6 +78,24 @@ CLI that controls Figma Desktop directly. No API key needed.
 **Full command reference:** See REFERENCE.md
 
 ---
+
+## Agent efficiency
+
+Every tool call is a full agent turn (~21k tokens of context re-read), so the
+CLI is built to finish a task in ONE call and to answer without a readback:
+
+- `eval` has helpers that absorb Figma pitfalls: `$page`, `$var`, `$bind`,
+  `$style`, `$component`, `$instance`, `$fontSafe`, `$describe`
+  (src/lib/figma-helpers.js, shared with render).
+- Fonts that are not installed are swapped to Inter and
+  reported as `note:` lines. Without that, Figma refuses to relabel an instance
+  or even appendChild it.
+- `render` prints the structure it built (sizes, layout, padding, bindings,
+  which component each instance uses) so the agent does not read it back.
+- Piped `eval` output is compact JSON, capped at 20k characters.
+- The user-facing agent rules live in src/lib/agent-rules.js (hashed marker
+  block). `init-agent` writes them, `connect` refreshes outdated copies.
+- Before a release: `FIGMA_FILE="<scratch file>" node tests/live/regression.mjs`.
 
 ## Key Rules
 

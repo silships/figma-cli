@@ -83,3 +83,17 @@ describe('FigmaClient properties', () => {
     assert.strictEqual(client.pageTitle, null);
   });
 });
+
+it('root frame honors per-side padding in render and render-batch', async () => {
+  const c = new FigmaClient();
+  const jsx = '<Frame name="P" flex="row" pt={4} pr={10} pb={6} pl={8}><Text>x</Text></Frame>';
+  const single = await c.parseJSX(jsx);
+  for (const want of ['paddingTop = 4', 'paddingRight = 10', 'paddingBottom = 6', 'paddingLeft = 8']) {
+    assert.ok(single.includes(want), 'render: ' + want);
+  }
+  const batch = await c.parseJSXBatch([jsx]);
+  const code = typeof batch === 'string' ? batch : JSON.stringify(batch);
+  for (const want of ['paddingTop = 4', 'paddingRight = 10', 'paddingBottom = 6', 'paddingLeft = 8']) {
+    assert.ok(code.includes(want), 'render-batch: ' + want);
+  }
+});

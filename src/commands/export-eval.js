@@ -2,6 +2,7 @@
 import chalk from 'chalk';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
+import { HELPERS_SOURCE, RESET_NOTES, READ_NOTES, usesHelpers } from '../lib/figma-helpers.js';
 import {
   program,
   checkConnection,
@@ -299,6 +300,33 @@ program
 
 // ============ EVAL ============
 
+// Agents read eval output through a pipe and pay for every indent as tokens, so
+// print compact JSON there and keep the indented form for a human terminal.
+// A result that dumps a whole file (thousands of nodes) costs an agent more
+// tokens than the task itself, so piped output is capped with a hint.
+const PIPED_OUTPUT_CAP = 20000;
+function formatResult(result) {
+  const text = typeof result !== 'object' ? String(result)
+    : process.stdout.isTTY ? JSON.stringify(result, null, 2) : JSON.stringify(result);
+  if (process.stdout.isTTY || text.length <= PIPED_OUTPUT_CAP) return text;
+  return text.slice(0, PIPED_OUTPUT_CAP) +
+    `\n… output cut at ${PIPED_OUTPUT_CAP} of ${text.length} characters. Return counts, a filtered list or .slice(0, N) instead.`;
+}
+
+// $page / $var / $bind / $instance / ... live on globalThis in Figma. Install
+// them first when the code uses one; the install is a no-op when present.
+async function ensureHelpers(code, run) {
+  if (!usesHelpers(code)) return;
+  await run(HELPERS_SOURCE + '\n' + RESET_NOTES + '\nreturn true;');
+}
+async function printHelperNotes(code, run) {
+  if (!usesHelpers(code)) return;
+  try {
+    const notes = await run(READ_NOTES);
+    for (const n of notes || []) console.error(chalk.yellow('note: ' + n));
+  } catch {}
+}
+
 program
   .command('eval [code]')
   .description('Execute JavaScript in Figma plugin context')
@@ -324,10 +352,12 @@ program
     // Always prefer async daemon (more reliable, no shell timeout issues)
     if (isDaemonRunning()) {
       try {
+        await ensureHelpers(jsCode, c => daemonExec('eval', { code: c }));
         const result = await daemonExec('eval', { code: jsCode });
         if (result !== undefined && result !== null) {
-          console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
+          console.log(formatResult(result));
         }
+        await printHelperNotes(jsCode, c => daemonExec('eval', { code: c }));
         return;
       } catch (e) {
         // Check if this is a connection/daemon error vs user code error
@@ -349,9 +379,10 @@ program
 
     // Sync fallback (when daemon not running)
     try {
+      await ensureHelpers(jsCode, async c => figmaEvalSync(c));
       const result = figmaEvalSync(jsCode);
       if (result !== undefined && result !== null) {
-        console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
+        console.log(formatResult(result));
       }
     } catch (error) {
       console.log(chalk.red('✗ ' + error.message));
@@ -374,7 +405,7 @@ program
       if (isDaemonRunning()) {
         const result = await daemonExec('eval', { code });
         if (result !== undefined) {
-          console.log(typeof result === 'object' ? JSON.stringify(result, null, 2) : result);
+          console.log(formatResult(result));
         }
       } else {
         // Fallback to sync path

@@ -7,6 +7,7 @@
 
 import WebSocket from 'ws';
 import { getCdpPort } from './figma-patch.js';
+import { HELPERS_SOURCE, RESET_NOTES } from './lib/figma-helpers.js';
 
 /**
  * Visible fallback colors for shadcn semantic token names (Zinc light theme).
@@ -627,6 +628,10 @@ export class FigmaClient {
       const p = props.p || props.padding || 0;
       const px = props.px || p;
       const py = props.py || p;
+      // pt/pr/pb/pl override one side, same as on nested frames. They used to
+      // be dropped on the root, so agents had to patch padding with eval.
+      const side = (v, d) => v !== undefined ? Number(v) : d;
+      const pt = side(props.pt, py), pb = side(props.pb, py), pl = side(props.pl, px), pr = side(props.pr, px);
       const wrap = props.wrap === true || props.wrap === 'true';
       const wrapGap = Number(props.wrapGap || props.rowGap || props.counterAxisSpacing || 0);
       const hug = props.hug || '';
@@ -664,8 +669,10 @@ export class FigmaClient {
         f${frameIdx}.layoutMode = '${flex === 'none' || flex === 'stack' || flex === 'free' ? 'NONE' : (flex === 'row' ? 'HORIZONTAL' : 'VERTICAL')}';
         ${flex === 'none' || flex === 'stack' || flex === 'free' ? '' : `${wrap && flex === 'row' ? `f${frameIdx}.layoutWrap = 'WRAP';` : ''}
         f${frameIdx}.itemSpacing = ${itemGap};
-        f${frameIdx}.paddingTop = f${frameIdx}.paddingBottom = ${py};
-        f${frameIdx}.paddingLeft = f${frameIdx}.paddingRight = ${px};
+        f${frameIdx}.paddingTop = ${pt};
+        f${frameIdx}.paddingBottom = ${pb};
+        f${frameIdx}.paddingLeft = ${pl};
+        f${frameIdx}.paddingRight = ${pr};
         f${frameIdx}.primaryAxisAlignItems = '${justifyVal}';
         f${frameIdx}.counterAxisAlignItems = '${alignVal}';
         f${frameIdx}.primaryAxisSizingMode = '${flex === 'col' ? (hugHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED') : (hugWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED')}';
@@ -684,6 +691,8 @@ export class FigmaClient {
 
     return `
       (async function() {
+        ${HELPERS_SOURCE}
+        ${RESET_NOTES}
         ${fontLoads}
         ${LAYOUT_WARN_PRELUDE}
         ${varLoadCode}
@@ -713,8 +722,12 @@ export class FigmaClient {
         if (globalThis.__figHugFlush) globalThis.__figHugFlush();
         const layoutWarnings = globalThis.__layoutWarnings || [];
         globalThis.__layoutWarnings = [];
-        return (unresolved.length > 0 || layoutWarnings.length > 0)
-          ? { frames: results, unresolved, layoutWarnings }
+        const notes = globalThis.__figNotes ? [...globalThis.__figNotes] : [];
+        for (const r of results) {
+          try { const n = await figma.getNodeByIdAsync(r.id); if (n) r.summary = await globalThis.__figHelpers.describe(n, 2, 12); } catch (e) {}
+        }
+        return (unresolved.length > 0 || layoutWarnings.length > 0 || notes.length > 0)
+          ? { frames: results, unresolved, layoutWarnings, notes }
           : results;
       })()
     `;
@@ -854,7 +867,7 @@ export class FigmaClient {
       'justify', 'items', 'align', 'grow', 'stretch', 'hug',
       'w', 'h', 'width', 'height', 'minW', 'maxW', 'minH', 'maxH',
       'position', 'x', 'y', 'top', 'right', 'bottom', 'left', 'centerOffsetX', 'centerOffsetY'];
-    const paint = ['bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign', 'opacity', 'blendMode',
+    const paint = ['effectStyle', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign', 'opacity', 'blendMode',
       'image', 'imageScale', 'visible', 'locked', 'clip', 'overflow', 'rotate'];
     const corners = ['rounded', 'radius', 'roundedTL', 'roundedTR', 'roundedBL', 'roundedBR', 'cornerSmoothing'];
     const effects = ['shadow', 'innerShadow', 'blur', 'bgBlur',
@@ -865,7 +878,7 @@ export class FigmaClient {
 
     const known = {
       Frame: [...layout, ...paint, ...corners, ...effects],
-      Text: ['name', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
+      Text: ['name', 'textStyle', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
         'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines'],
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
       Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
@@ -875,7 +888,7 @@ export class FigmaClient {
       Circle: null,    // alias of Ellipse, filled below
       Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
-      Instance: ['name', 'component', 'id', 'w', 'h', 'width', 'height'],
+      Instance: ['name', 'component', 'id', 'variant', 'text', 'w', 'h', 'width', 'height'],
     };
     known.Rectangle = known.Rect;
     known.Circle = known.Ellipse;
@@ -1114,7 +1127,8 @@ export class FigmaClient {
     }
 
     // Parse Instance elements (self-closing) - creates component instance
-    const instanceRegex = /<Instance\s+([^/]*)\s*\/>/g;
+    // quoted values may contain '/' ("ActionList.Item/Default"), so skip over them
+    const instanceRegex = /<Instance\s+((?:[^/"]|"[^"]*")*)\s*\/>/g;
     while ((match = instanceRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -1378,6 +1392,17 @@ export class FigmaClient {
         ${tLetterSpacing ? `try { el${idx}.letterSpacing = ${tLetterSpacing}; } catch(e) {}` : ''}
         ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
+        ${item.textStyle ? `// Named text style. When its font is not installed Figma refuses the
+        // style outright, so keep the style's metrics on the fallback font and say so.
+        try {
+          const __ts = await globalThis.__figHelpers.style(${JSON.stringify(String(item.textStyle))});
+          try { await figma.loadFontAsync(__ts.fontName); await el${idx}.setTextStyleIdAsync(__ts.id); }
+          catch (e) {
+            el${idx}.fontSize = __ts.fontSize;
+            try { el${idx}.lineHeight = __ts.lineHeight; el${idx}.letterSpacing = __ts.letterSpacing; } catch (e2) {}
+            globalThis.__figHelpers.note('text style "' + __ts.name + '" needs font "' + __ts.fontName.family + ' ' + __ts.fontName.style + '" which is not installed; applied its size and spacing with the fallback font instead');
+          }
+        } catch (e) { globalThis.__figHelpers.note(e.message); }` : ''}
         ${textFillCode.code}
         ${runStyleCode ? runStyleCode : ''}
         ${parentVar}.appendChild(el${idx});
@@ -1752,28 +1777,21 @@ export class FigmaClient {
         ${parentVar}.appendChild(el${idx});`;
           }
         } else if (item._type === 'instance') {
-          // Component instance
-          const compId = item.component || item.id;
-          const compName = item.name;
-
-          if (compId) {
-            // Create instance by component ID
-            return `
-        const comp${idx} = figma.getNodeById(${JSON.stringify(compId)});
-        if (comp${idx} && comp${idx}.type === 'COMPONENT') {
-          const el${idx} = comp${idx}.createInstance();
-          ${parentVar}.appendChild(el${idx});
-        }`;
-          } else if (compName) {
-            // Find component by name and create instance
-            return `
-        const comp${idx} = figma.currentPage.findOne(n => n.type === 'COMPONENT' && n.name === ${JSON.stringify(compName)});
-        if (comp${idx}) {
-          const el${idx} = comp${idx}.createInstance();
-          ${parentVar}.appendChild(el${idx});
-        }`;
-          }
-          return '';
+          // Component instance by set/component name (whole document) or id.
+          // variant="size=large, variant=danger" picks the variant, text="..."
+          // relabels the first text layer. Missing fonts are swapped to Inter
+          // (otherwise Figma refuses both the relabel and the appendChild).
+          const ref = item.component || item.id || item.name;
+          if (!ref) return '';
+          const fillW = item.w === 'fill';
+          const numW = item.w !== undefined && !isNaN(Number(item.w)) ? Number(item.w) : null;
+          return `
+        __currentNode = ${JSON.stringify('Instance: ' + ref)};
+        const el${idx} = await globalThis.__figHelpers.instance(${JSON.stringify(String(ref))}, ${JSON.stringify(item.variant || '')}, {
+          ${item.text !== undefined ? `text: ${JSON.stringify(String(item.text))},` : ''} parent: ${parentVar} });
+        ${item.component && item.name ? `el${idx}.name = ${JSON.stringify(String(item.name))};` : ''}
+        ${fillW ? `try { el${idx}.layoutSizingHorizontal = 'FILL'; } catch (e) {}` : ''}
+        ${numW !== null ? `try { el${idx}.resize(${numW}, el${idx}.height); } catch (e) {}` : ''}`;
         } else if (item._type === 'slot') {
           // Slot element - creates slot inside component
           // NOTE: createSlot only works when parent is a component
@@ -1849,6 +1867,8 @@ export class FigmaClient {
     const p = props.p || props.padding || 0;
     const px = props.px || p;
     const py = props.py || p;
+    const side = (v, d) => v !== undefined ? Number(v) : d;
+    const pt = side(props.pt, py), pb = side(props.pb, py), pl = side(props.pl, px), pr = side(props.pr, px);
     // CLI-supplied -x/-y win over JSX props; `--no-smart-position` reaches us
     // as an explicit x so the frame lands exactly where the caller asked.
     const cliX = opts.x !== undefined && opts.x !== null ? Number(opts.x) : undefined;
@@ -1998,6 +2018,8 @@ export class FigmaClient {
 
     return `
       (async function() {
+        ${HELPERS_SOURCE}
+        ${RESET_NOTES}
         ${fontLoadCode}
         ${LAYOUT_WARN_PRELUDE}
         ${varLoadCode}
@@ -2019,10 +2041,10 @@ export class FigmaClient {
         frame.layoutMode = '${flex === 'none' || flex === 'stack' || flex === 'free' ? 'NONE' : (flex === 'row' ? 'HORIZONTAL' : 'VERTICAL')}';
         ${flex === 'none' || flex === 'stack' || flex === 'free' ? '' : `${wrap && flex === 'row' ? `frame.layoutWrap = 'WRAP';` : ''}
         frame.itemSpacing = ${gap};
-        frame.paddingTop = ${py};
-        frame.paddingBottom = ${py};
-        frame.paddingLeft = ${px};
-        frame.paddingRight = ${px};
+        frame.paddingTop = ${pt};
+        frame.paddingBottom = ${pb};
+        frame.paddingLeft = ${pl};
+        frame.paddingRight = ${pr};
         frame.primaryAxisAlignItems = '${justifyVal}';
         frame.counterAxisAlignItems = '${alignVal}';
         frame.primaryAxisSizingMode = '${flex === 'col' ? (hugHeight || fillHeight || !hasExplicitHeight ? 'AUTO' : 'FIXED') : (hugWidth || fillWidth || !hasExplicitWidth ? 'AUTO' : 'FIXED')}';
@@ -2054,9 +2076,13 @@ export class FigmaClient {
         if (globalThis.__figHugFlush) globalThis.__figHugFlush();
         const __layoutWarnings = globalThis.__layoutWarnings || [];
         globalThis.__layoutWarnings = [];
-        return (__unresolved.length > 0 || __layoutWarnings.length > 0)
-          ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings }
-          : { id: frame.id, name: frame.name };
+        const __notes = globalThis.__figNotes ? [...globalThis.__figNotes] : [];
+        // What was built, so the caller does not need a second call to check it.
+        let __summary = null;
+        try { __summary = await globalThis.__figHelpers.describe(frame); } catch (e) {}
+        return (__unresolved.length > 0 || __layoutWarnings.length > 0 || __notes.length > 0)
+          ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings, notes: __notes, summary: __summary }
+          : { id: frame.id, name: frame.name, summary: __summary };
         } catch(e) {
           frame.remove();
           throw new Error('[Node: ' + __currentNode + '] ' + e.message);
@@ -2385,6 +2411,16 @@ export class FigmaClient {
   }
 
   generateEffectsCode(props, elementVar) {
+    const raw = this.generateRawEffectsCode(props, elementVar);
+    if (!props.effectStyle) return raw;
+    // A named effect style from the file (e.g. effectStyle="shadow/resting/small").
+    // Applied after raw effects so the style wins; a missing name becomes a note.
+    return raw + `
+        try { await ${elementVar}.setEffectStyleIdAsync((await globalThis.__figHelpers.style(${JSON.stringify(String(props.effectStyle))})).id); }
+        catch (e) { globalThis.__figHelpers.note(e.message); }`;
+  }
+
+  generateRawEffectsCode(props, elementVar) {
     const effects = [];
     if (props.shadow) {
       const arr = Array.isArray(props.shadow) ? props.shadow : [props.shadow];

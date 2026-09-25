@@ -327,7 +327,47 @@ node src/index.js eval --file /tmp/script.js
 node src/index.js run /tmp/script.js
 ```
 
+## Eval Helpers
+
+Available inside every `figma-cli eval` (and used by `render`). They install on
+first use and handle lazy pages, missing fonts and name lookups:
+
+```js
+const p = await $page('Scratch');                 // switch to page, create if missing
+const v = await $var('bgColor/muted');            // local variable by full name
+await $bind(frame, 'bgColor/muted');              // bind to fills ('strokes' or a field as 3rd arg)
+const s = await $style('Body/Medium');            // any local style by name
+const set = await $component('Button');           // component or set by name/id, whole file
+const i = await $instance('Button', 'variant=danger, size=large', { text: 'Delete', parent: frame });
+await $fontSafe(node);                            // load fonts, swap missing ones to Inter
+return await $describe(node);                     // compact one-line-per-node summary
+```
+
+Piped output (an agent calling the CLI) is compact JSON and capped at 20,000
+characters; a terminal still gets indented JSON.
+
 ## Render JSX Syntax
+
+**Pages and design-system hooks**
+
+```bash
+figma-cli render --page "Scratch" '<Frame ...>'      # render-batch takes --page too
+```
+```jsx
+<Instance component="Button" variant="variant=danger, size=large" text="Delete" />  // any page, font-safe
+<Frame effectStyle="shadow/resting/small">...</Frame>
+<Text textStyle="Body/Medium">...</Text>   // style's font missing: size/spacing kept on the fallback font
+<Frame pt={4} pr={8} pb={4} pl={8}>        // per-side padding, root frames included
+```
+
+**Component sets in one call**
+
+```bash
+figma-cli render-batch '["<Frame name=\"size=small, state=default\" ...>...</Frame>", ...]' --variant-set Button
+```
+Frame names must be `prop=value, prop=value` with the same properties on every
+frame; the command validates names before touching the file.
+
 
 **Elements:** `<Frame>`, `<Rectangle>`, `<Ellipse>`, `<Text>`, `<Line>`, `<Image>`, `<SVG>`, `<Icon>`
 
