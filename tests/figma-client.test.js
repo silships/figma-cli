@@ -97,3 +97,24 @@ it('root frame honors per-side padding in render and render-batch', async () => 
     assert.ok(code.includes(want), 'render-batch: ' + want);
   }
 });
+
+describe('self-closing tags with URLs and centered text', () => {
+  const c = new FigmaClient();
+  it('parses <Image src="https://..."> and <Rect image="https://..."> despite the slashes', () => {
+    const kids = c.parseChildren('<Image name="Hero" src="https://example.com/a/b.png" w={10} h={10} /><Rect name="R" image="https://example.com/x.png" w={5} h={5} />');
+    assert.deepStrictEqual(kids.map(k => [k._type, k.name]), [['image', 'Hero'], ['rect', 'R']]);
+    assert.strictEqual(kids[0].src, 'https://example.com/a/b.png');
+  });
+  it('accepts a lone Rectangle as the root', async () => {
+    const code = await c.parseJSX('<Rectangle name="Box" w={20} h={20} bg="#f00" />');
+    assert.ok(code.includes('"Box"'));
+  });
+  it('centers text in a column with items="center" unless align is set', async () => {
+    const centered = await c.parseJSX('<Frame flex="col" items="center" w={200}><Text w="fill">Hi</Text></Frame>');
+    assert.ok(centered.includes("textAlignHorizontal = 'CENTER'"));
+    const left = await c.parseJSX('<Frame flex="col" items="center" w={200}><Text w="fill" align="left">Hi</Text></Frame>');
+    assert.ok(!left.includes("textAlignHorizontal = 'CENTER'"));
+    const plain = await c.parseJSX('<Frame flex="col" w={200}><Text w="fill">Hi</Text></Frame>');
+    assert.ok(!plain.includes("textAlignHorizontal = 'CENTER'"));
+  });
+});

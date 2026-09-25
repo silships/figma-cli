@@ -456,7 +456,8 @@ export class FigmaClient {
     const vertical = options.vertical || false;
 
     // Parse each JSX to get props and children
-    const parsed = jsxArray.map(jsx => {
+    const parsed = jsxArray.map(raw => {
+      const jsx = this.normalizeRoot(raw);
       const openMatch = jsx.match(/<Frame\s+([^>]*)>/);
       if (!openMatch) throw new Error('Invalid JSX: must start with <Frame>');
       const propsStr = openMatch[1];
@@ -470,6 +471,7 @@ export class FigmaClient {
     // Pre-fetch any icon SVGs used in any frame (shared child generator
     // renders real Iconify SVGs, falling back to placeholders offline)
     const iconSvgMap = await this.prefetchIconSvgs(parsed.flatMap(p => p.children));
+    await this.prefetchImages(parsed.flatMap(p => [p.props, ...p.children]));
 
     // Collect all fonts needed ({ family, style } pairs, deduped)
     const allFontMap = new Map();
@@ -653,7 +655,7 @@ export class FigmaClient {
       const effectsCode = this.generateEffectsCode(props, `f${frameIdx}`);
       const imageCode = props.image ? this.generateImageFillCode(props.image, `f${frameIdx}`, props.imageScale) : '';
 
-      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap });
+      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap }, props.items || props.align || null);
 
       return `
         const f${frameIdx} = figma.createFrame();
@@ -744,7 +746,42 @@ export class FigmaClient {
    *   divergent auto-layout implementation). Supporting them here is what lets
    *   every render go through ONE code path.
    */
+  /**
+   * A lone <Rectangle ... /> or <Rect ... /> is a common first attempt at "a
+   * box with an image". A Frame does everything a rectangle does, so accept it
+   * as the root instead of failing with "must start with <Frame>".
+   */
+  normalizeRoot(jsx) {
+    const m = String(jsx).trim().match(/^<(Rectangle|Rect)\b([\s\S]*?)\/>$/);
+    return m ? `<Frame${m[2]}></Frame>` : jsx;
+  }
+
+  /**
+   * Download every image="https://..." / <Image src> in the tree on the CLI side
+   * and hand Figma the bytes. figma.createImageAsync(url) runs under the network
+   * rules of whatever plugin context the code lands in (an open plugin's
+   * allowedDomains), so it fails for most URLs; createImage(bytes) never does.
+   */
+  async prefetchImages(nodes) {
+    const urls = new Set();
+    const walk = (n) => {
+      if (!n) return;
+      for (const u of [n.image, n._type === 'image' ? n.src : null]) if (typeof u === 'string' && /^https?:\/\//.test(u)) urls.add(u);
+      (n._children || []).forEach(walk);
+    };
+    nodes.forEach(walk);
+    this._imageData = this._imageData || {};
+    await Promise.all([...urls].map(async (u) => {
+      if (this._imageData[u]) return;
+      try {
+        const res = await fetch(u, { signal: AbortSignal.timeout(15000) });
+        if (res.ok) this._imageData[u] = Buffer.from(await res.arrayBuffer()).toString('base64');
+      } catch (e) { /* falls back to createImageAsync inside Figma */ }
+    }));
+  }
+
   async parseJSX(jsx, opts = {}) {
+    jsx = this.normalizeRoot(jsx);
     // Find opening Frame tag
     const openMatch = jsx.match(/<Frame\s+([^>]*)>/);
     if (!openMatch) {
@@ -771,8 +808,9 @@ export class FigmaClient {
       console.warn('[render] Supported elements: <Frame>, <Text>, <Rectangle>, <Rect>, <Image>, <Icon>');
     }
 
-    // Pre-fetch any icon SVGs before code generation
+    // Pre-fetch any icon SVGs and images before code generation
     const iconSvgMap = await this.prefetchIconSvgs(childElements);
+    await this.prefetchImages([props, ...childElements]);
 
     // Generate code
     return this.generateCode(props, childElements, iconSvgMap, opts);
@@ -881,12 +919,12 @@ export class FigmaClient {
       Text: ['name', 'textStyle', 'size', 'weight', 'color', 'font', 'italic', 'align', 'w', 'h', 'width', 'height',
         'grow', 'opacity', 'x', 'y', 'position', 'lineHeight', 'letterSpacing', 'truncate', 'maxLines'],
       Icon: ['name', 'size', 's', 'color', 'c', 'x', 'y', 'position'],
-      Rect: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Rect: ['name', 'image', 'imageScale', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Rectangle: null, // alias of Rect, filled below
       Ellipse: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'stroke', 'strokeWidth', 'strokeAlign',
         'arc', 'arcStart', 'innerRadius', 'opacity', 'x', 'y', 'position'],
       Circle: null,    // alias of Ellipse, filled below
-      Image: ['name', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
+      Image: ['name', 'src', 'image', 'fit', 'imageScale', 'w', 'h', 'width', 'height', 'bg', 'fill', 'rounded', 'radius', 'opacity', 'x', 'y', 'position'],
       Slot: ['name', 'flex', 'gap', 'p', 'px', 'py', 'padding', 'w', 'h', 'width', 'height', 'bg', 'fill'],
       Instance: ['name', 'component', 'id', 'variant', 'text', 'w', 'h', 'width', 'height'],
     };
@@ -1039,7 +1077,7 @@ export class FigmaClient {
     }
 
     // Parse self-closing Slot elements
-    const slotSelfCloseRegex = /<Slot(?:\s+([^/]*?))?\s*\/>/g;
+    const slotSelfCloseRegex = /<Slot(?:\s+((?:[^/"]|"[^"]*")*?))?\s*\/>/g;
     while ((match = slotSelfCloseRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -1074,7 +1112,7 @@ export class FigmaClient {
 
     // Parse Rectangle elements (self-closing)
     // Use (?:\s+([^/]*?))? to allow Rect with or without attributes
-    const rectRegex = /<(?:Rectangle|Rect)(?:\s+([^/]*?))?\s*\/>/g;
+    const rectRegex = /<(?:Rectangle|Rect)(?:\s+((?:[^/"]|"[^"]*")*?))?\s*\/>/g;
     while ((match = rectRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -1088,7 +1126,7 @@ export class FigmaClient {
 
     // Parse Ellipse / Circle elements (self-closing). Supports rings, spinners,
     // donut/pie via arc (sweep°), arcStart (start°, 0=3 o'clock) and innerRadius.
-    const ellipseRegex = /<(?:Ellipse|Circle)(?:\s+([^/]*?))?\s*\/>/g;
+    const ellipseRegex = /<(?:Ellipse|Circle)(?:\s+((?:[^/"]|"[^"]*")*?))?\s*\/>/g;
     while ((match = ellipseRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -1101,7 +1139,8 @@ export class FigmaClient {
     }
 
     // Parse Image elements (self-closing) - creates placeholder rectangle
-    const imageRegex = /<Image\s+([^/]*)\s*\/>/g;
+    // quoted values may contain '/' (src="https://..."), so skip over them
+    const imageRegex = /<Image\s+((?:[^/"]|"[^"]*")*?)\s*\/>/g;
     while ((match = imageRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
@@ -1321,7 +1360,7 @@ export class FigmaClient {
    * ctx: { counter: {value}, prefix: string (el-name prefix, e.g. '0_'),
    *        iconSvgMap: {name: svg} }
    */
-  generateChildrenCode(items, parentVar, parentFlex, ctx) {
+  generateChildrenCode(items, parentVar, parentFlex, ctx, parentItems = null) {
       return items.map(item => {
         const idx = ctx.prefix + (ctx.counter.value++);
         if (item._type === 'text') {
@@ -1344,7 +1383,10 @@ export class FigmaClient {
             return `{ value: ${Number(v)}, unit: 'PIXELS' }`;
           };
           const alignMapT = { left: 'LEFT', center: 'CENTER', right: 'RIGHT', justify: 'JUSTIFIED', start: 'LEFT', end: 'RIGHT' };
-          const tAlign = item.align ? alignMapT[String(item.align).toLowerCase()] : null;
+          // A text in a column whose items are centered reads centered: without
+          // this a wrapping headline sits flush left inside a centered stack.
+          const inheritsCenter = !item.align && (parentFlex === 'col' || parentFlex === 'column') && parentItems === 'center';
+          const tAlign = item.align ? alignMapT[String(item.align).toLowerCase()] : (inheritsCenter ? 'CENTER' : null);
           const tLineHeight = item.lineHeight !== undefined ? dimUnit(item.lineHeight) : null;
           const tLetterSpacing = item.letterSpacing !== undefined ? dimUnit(item.letterSpacing) : null;
           const tTruncate = item.truncate === true || item.truncate === 'true';
@@ -1503,7 +1545,7 @@ export class FigmaClient {
 
           const { alignVal: fAlignVal, justifyVal: fJustifyVal } = resolveAlign(fFlex, item);
 
-          const nestedChildren = item._children ? this.generateChildrenCode(item._children, `el${idx}`, fFlex, ctx) : '';
+          const nestedChildren = item._children ? this.generateChildrenCode(item._children, `el${idx}`, fFlex, ctx, item.items || item.align || null) : '';
           const frameFillCode = fBg ? this.generateFillCode(fBg, `el${idx}`) : { code: `el${idx}.fills = [];`, usesVars: false };
           const frameStrokeCode = fStroke ? this.generateStrokeCode(fStroke, `el${idx}`, fStrokeWidth, fStrokeAlign) : { code: '' };
           const frameEffectsCode = this.generateEffectsCode(item, `el${idx}`);
@@ -1573,6 +1615,7 @@ export class FigmaClient {
         ${frameFillCode.code}
         ${frameStrokeCode.code}
         ${frameEffectsCode}
+        ${item.image ? this.generateImageFillCode(item.image, `el${idx}`, item.imageScale) : ''}
         ${isNone ? '' : `el${idx}.primaryAxisAlignItems = '${fJustifyVal}';
         el${idx}.counterAxisAlignItems = '${fAlignVal}';`}
         el${idx}.clipsContent = ${fClip};
@@ -1720,6 +1763,7 @@ export class FigmaClient {
         el${idx}.resize(${iWidth}, ${iHeight});
         el${idx}.cornerRadius = ${iRounded};
         ${imgFillCode.code}
+        ${item.src || item.image ? this.generateImageFillCode(item.src || item.image, `el${idx}`, item.imageScale || item.fit) : ''}
         ${parentVar}.appendChild(el${idx});
         ${this.genCommonNodeProps(item, `el${idx}`, parentFlex === 'none' || parentFlex === 'stack' || parentFlex === 'free')}`;
         } else if (item._type === 'icon') {
@@ -1905,7 +1949,7 @@ export class FigmaClient {
     const collected = this.collectFontsAndVarUsage(children);
     if (collected.usesVars) usesVars = true;
 
-    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap });
+    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap }, props.items || props.align || null);
 
     const { alignVal, justifyVal } = resolveAlign(flex, props);
 
@@ -2216,8 +2260,12 @@ export class FigmaClient {
     const finalMode = validModes.includes(mode) ? mode : 'FILL';
     const safeName = elementVar.replace(/[^a-zA-Z0-9]/g, '');
     // Image REPLACES fills (not appends) — user expects bg-style behavior
+    const bytes = this._imageData && this._imageData[url];
+    const create = bytes
+      ? `figma.createImage(figma.base64Decode(${JSON.stringify(bytes)}))`
+      : `await figma.createImageAsync(${JSON.stringify(url)})`;
     return `
-      const __img${safeName} = await figma.createImageAsync(${JSON.stringify(url)});
+      const __img${safeName} = ${create};
       ${elementVar}.fills = [{ type: 'IMAGE', imageHash: __img${safeName}.hash, scaleMode: '${finalMode}' }];`;
   }
 

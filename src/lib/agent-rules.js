@@ -68,6 +68,11 @@ Helpers available inside \`eval\` (they handle the Figma pitfalls for you):
   (\`text\` relabels the first text layer).
 - A component text or style whose font is not installed is switched to Inter
   automatically and reported as a \`note:\` line. You do not need to fix fonts.
+- Images from the web: \`<Frame image="https://..." imageScale="fill|fit" .../>\` or
+  \`<Image src="https://..." w={320} h={200} />\`. figma-cli downloads the file itself.
+- Overlays and badges: \`position="absolute" x={0} y={0}\` takes a child out of the
+  auto-layout flow (a named child). Clip children to rounded corners with \`overflow="hidden"\`.
+- Text in a column with \`items="center"\` is centered automatically; set \`align\` to override.
 - \`render\` prints the new node id and **the structure it built**: sizes, layout,
   padding, gap, bound variables, styles, which component each instance uses.
   Check that output; do not re-read the result with \`eval\`. \`--verify\` adds a

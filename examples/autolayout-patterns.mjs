@@ -187,12 +187,15 @@ const evalIn = (code) => {
 function main() {
   const keep = process.argv.includes('--keep');
 
-  evalIn(`(async () => {
+  // Remember where the user was. This script builds on its own page, and
+  // without --keep it must leave the file exactly as it found it.
+  const previousPage = evalIn(`(async () => {
     let p = figma.root.children.find(c => c.name === ${JSON.stringify(PAGE)});
+    const prev = figma.currentPage.id;
     if (!p) { p = figma.createPage(); p.name = ${JSON.stringify(PAGE)}; }
     await figma.setCurrentPageAsync(p);
     ${keep ? '' : 'for (const c of [...p.children]) c.remove();'}
-    return 'ready';
+    return prev;
   })()`);
 
   // Caption above each example, so the page reads as documentation.
@@ -272,7 +275,36 @@ function main() {
 
   console.log(`\n${PATTERNS.length - failures}/${PATTERNS.length} patterns match their expected layout`);
   if (warned) console.log('note: render reported an auto-layout warning above — none of these patterns should trigger one');
+  if (!keep) teardown(previousPage);
+  else console.log(`kept on page "${PAGE}" — run without --keep to clean up`);
   process.exit(failures || warned ? 1 : 0);
 }
 
-main();
+/** Remove the scratch page and put the user back where they were. */
+function teardown(previousPageId) {
+  try {
+    evalIn(`(async () => {
+      await figma.loadAllPagesAsync();
+      const p = figma.root.children.find(c => c.name === ${JSON.stringify(PAGE)});
+      const prev = ${JSON.stringify(String(previousPageId || ''))};
+      const back = prev ? await figma.getNodeByIdAsync(prev) : null;
+      if (back && back.type === 'PAGE') await figma.setCurrentPageAsync(back);
+      else if (p) { const other = figma.root.children.find(x => x !== p); if (other) await figma.setCurrentPageAsync(other); }
+      if (p) p.remove();
+      return 'torn down';
+    })()`);
+  } catch (e) {
+    // Best effort — never mask the real result, but do say so: a silent
+    // teardown failure is how scratch pages accumulate in someone's file.
+    console.error(`⚠ teardown failed: ${e && e.message ? e.message.split('\n')[0] : e}`);
+  }
+}
+
+try {
+  main();
+} catch (e) {
+  // A crash must not leave the scratch page behind either.
+  teardown(null);
+  console.error(e && e.message ? e.message : e);
+  process.exit(1);
+}

@@ -184,16 +184,40 @@ const diff = (a, b, trail = 'root', out = []) => {
   return out;
 };
 
+/** Remove the scratch page and put the user back where they were. */
+function teardown(previousPageId) {
+  try {
+    evalIn(`(async () => {
+      await figma.loadAllPagesAsync();
+      const p = figma.root.children.find(c => c.name === ${JSON.stringify(PAGE)});
+      const prev = ${JSON.stringify(String(previousPageId || ''))};
+      const back = prev ? await figma.getNodeByIdAsync(prev) : null;
+      if (back && back.type === 'PAGE') await figma.setCurrentPageAsync(back);
+      else if (p) { const other = figma.root.children.find(x => x !== p); if (other) await figma.setCurrentPageAsync(other); }
+      if (p) p.remove();
+      return 'torn down';
+    })()`);
+  } catch (e) {
+    // Best effort — never mask the real result, but do say so: a silent
+    // teardown failure is how scratch pages accumulate in someone's file.
+    console.error(`⚠ teardown failed: ${e && e.message ? e.message.split('\n')[0] : e}`);
+  }
+}
+
 async function main() {
   const filter = process.argv[2];
   const cases = filter ? CASES.filter((c) => c.name.includes(filter)) : CASES;
 
-  evalIn(`(async () => {
+  // Remember where the user was: the harness switches pages to build on its
+  // own scratch page, and leaving them somewhere else (or leaving the scratch
+  // page behind at all) is debris in someone's real file.
+  const previousPage = evalIn(`(async () => {
     let p = figma.root.children.find(c => c.name === ${JSON.stringify(PAGE)});
+    const prev = figma.currentPage.id;
     if (!p) { p = figma.createPage(); p.name = ${JSON.stringify(PAGE)}; }
     await figma.setCurrentPageAsync(p);
     for (const c of [...p.children]) c.remove();
-    return 'clean';
+    return prev;
   })()`);
 
   let failed = 0;
@@ -235,7 +259,15 @@ async function main() {
       `   render ${timing.single}ms · render-batch ${timing.batch}ms` +
       `   (${(timing.single / Math.max(timing.batch, 1)).toFixed(1)}x)`
   );
+  teardown(previousPage);
   process.exit(failed ? 1 : 0);
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  // A case that throws must not leave the scratch page behind either.
+  main().catch((e) => {
+    teardown(null);
+    console.error(e && e.message ? e.message : e);
+    process.exit(1);
+  });
+}

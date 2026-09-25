@@ -209,6 +209,11 @@ async function getCdpClient() {
     lastHealthCheck = Date.now();
     lastHealthResult = true;
     console.log('[daemon] Connected to Figma via CDP (Yolo Mode)');
+    // File warming: Figma loads pages lazily, so the first command that looks
+    // beyond the current page waits for every page to load (seconds on a big
+    // design system). Start that load now, in the background, so it is done
+    // before the first real command arrives. Never awaited, never fatal.
+    cdpClient.eval('figma.loadAllPagesAsync().then(() => true)').catch(() => {});
   } finally {
     isCdpConnecting = false;
   }

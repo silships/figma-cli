@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.2 (2026-09-25)
+
+### Added
+
+- Images from the web in `render`: `image="https://..."` on frames and rectangles and `<Image src="https://..." />`. figma-cli downloads the file itself, so it also works while a plugin with network restrictions is open in the file
+- A lone `<Rectangle ... />` is accepted as the outermost element of `render`
+- Text in a column with `items="center"` is centered automatically. `align` still wins
+- The daemon loads all pages in the background right after connecting, so the first command in a large file does not wait for page loading
+- The agent rules explain images and absolute positioning and clipping
+
+### Fixed
+
+- `<Image>` `<Rect>` `<Ellipse>` and `<Slot>` were dropped when a quoted value contained a `/` (for example a URL)
+- The live test scripts remove their pages when they finish
+
 ## 2.2.1 (2026-09-25)
 
 ### Added: new versions reach users without extra steps
