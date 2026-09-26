@@ -9,6 +9,17 @@ import WebSocket from 'ws';
 import { getCdpPort } from './figma-patch.js';
 import { HELPERS_SOURCE, RESET_NOTES } from './lib/figma-helpers.js';
 
+// Temporary wrapper for a root <Instance>: rendered like a frame, then the
+// instance takes its place on the canvas and the wrapper is removed.
+const UNWRAP_NAME = '__figma_cli_unwrap__';
+const UNWRAP_ROOT = (v) => `(() => {
+          if (${v}.name !== ${JSON.stringify(UNWRAP_NAME)} || ${v}.children.length !== 1) return ${v};
+          const k = ${v}.children[0], par = ${v}.parent;
+          par.insertChild(par.children.indexOf(${v}), k);
+          k.x = ${v}.x; k.y = ${v}.y; ${v}.remove();
+          return k;
+        })()`;
+
 /**
  * Visible fallback colors for shadcn semantic token names (Zinc light theme).
  * When a `var:` reference can't be resolved (e.g. the user never loaded any
@@ -728,6 +739,12 @@ export class FigmaClient {
         globalThis.__layoutWarnings = [];
         const notes = globalThis.__figNotes ? [...globalThis.__figNotes] : [];
         for (const r of results) {
+          const f = await figma.getNodeByIdAsync(r.id);
+          if (!f) continue;
+          const k = ${UNWRAP_ROOT('f')};
+          if (k !== f) { r.id = k.id; r.name = k.name; r.width = k.width; r.height = k.height; }
+        }
+        for (const r of results) {
           try { const n = await figma.getNodeByIdAsync(r.id); if (n) r.summary = await globalThis.__figHelpers.describe(n, 2, 12); } catch (e) {}
         }
         return (unresolved.length > 0 || layoutWarnings.length > 0 || notes.length > 0)
@@ -754,8 +771,13 @@ export class FigmaClient {
    * as the root instead of failing with "must start with <Frame>".
    */
   normalizeRoot(jsx) {
-    const m = String(jsx).trim().match(/^<(Rectangle|Rect)\b([\s\S]*?)\/>$/);
-    return m ? `<Frame${m[2]}></Frame>` : jsx;
+    const t = String(jsx).trim();
+    const m = t.match(/^<(Rectangle|Rect)\b([\s\S]*?)\/>$/);
+    if (m) return `<Frame${m[2]}></Frame>`;
+    // A lone <Instance .../> ("place three cards side by side") is built inside
+    // a temporary hugging frame that is dissolved again, see UNWRAP_ROOT.
+    if (/^<Instance\b[\s\S]*\/>$/.test(t)) return `<Frame name="${UNWRAP_NAME}" flex="row" hug="both">${t}</Frame>`;
+    return jsx;
   }
 
   /**
@@ -2172,12 +2194,13 @@ export class FigmaClient {
         const __layoutWarnings = globalThis.__layoutWarnings || [];
         globalThis.__layoutWarnings = [];
         const __notes = globalThis.__figNotes ? [...globalThis.__figNotes] : [];
+        const __root = ${UNWRAP_ROOT('frame')};
         // What was built, so the caller does not need a second call to check it.
         let __summary = null;
-        try { __summary = await globalThis.__figHelpers.describe(frame); } catch (e) {}
+        try { __summary = await globalThis.__figHelpers.describe(__root); } catch (e) {}
         return (__unresolved.length > 0 || __layoutWarnings.length > 0 || __notes.length > 0)
-          ? { id: frame.id, name: frame.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings, notes: __notes, summary: __summary }
-          : { id: frame.id, name: frame.name, summary: __summary };
+          ? { id: __root.id, name: __root.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings, notes: __notes, summary: __summary }
+          : { id: __root.id, name: __root.name, summary: __summary };
         } catch(e) {
           frame.remove();
           throw new Error('[Node: ' + __currentNode + '] ' + e.message);

@@ -310,7 +310,7 @@ function formatResult(result) {
     : process.stdout.isTTY ? JSON.stringify(result, null, 2) : JSON.stringify(result);
   if (process.stdout.isTTY || text.length <= PIPED_OUTPUT_CAP) return text;
   return text.slice(0, PIPED_OUTPUT_CAP) +
-    `\n… output cut at ${PIPED_OUTPUT_CAP} of ${text.length} characters. Return counts, a filtered list or .slice(0, N) instead.`;
+    `\n… output cut at ${PIPED_OUTPUT_CAP} of ${text.length} characters. Return counts, a filtered list or .slice(0, N) instead. For an image of a node use figma-cli verify <id> --scale 2 (saves a PNG).`;
 }
 
 // $page / $var / $bind / $instance / ... live on globalThis in Figma. Install

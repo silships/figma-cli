@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.2.4 (2026-09-26)
+
+### Fixed
+
+- After an update the old background daemon kept serving `render-batch` and `eval` with the previous version's code until it idled out. The daemon now reports its version and figma-cli restarts it when it does not match
+- `render '<Instance component="Card" />'` and `render-batch` with instances place the instances directly on the page instead of failing with "must start with <Frame>"
+
+### Changed
+
+- The agent rules and the `eval` output limit point to `figma-cli verify <id> --scale 2` for a sharper screenshot
+
 ## 2.2.3 (2026-09-26)
 
 ### Added

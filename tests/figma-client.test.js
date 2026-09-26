@@ -147,3 +147,12 @@ describe('strokes and instance tint', () => {
     assert.ok(code.includes('__tint'));
   });
 });
+
+describe('root instances', () => {
+  const c = new FigmaClient();
+  it('wraps a lone <Instance> so it can be rendered and dissolves the wrapper afterwards', async () => {
+    const code = await c.parseJSX('<Instance component="Card" />');
+    assert.ok(code.includes('__figma_cli_unwrap__'));
+    assert.ok(code.includes('insertChild'));
+  });
+});

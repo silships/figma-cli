@@ -244,6 +244,19 @@ function getTokenStatus() {
 let _daemonHealthCache = { time: 0, value: null };
 const DAEMON_HEALTH_TTL_MS = 2000;
 function invalidateDaemonHealthCache() { _daemonHealthCache = { time: 0, value: null }; }
+let _daemonHealthBody = null;
+
+/**
+ * True when the running daemon was started from different figma-cli code:
+ * another version (after npm update) or another install path. render-batch and
+ * eval run INSIDE the daemon, so a stale one silently serves old behaviour.
+ * A daemon too old to report its version counts as stale.
+ */
+function daemonCodeMismatch() {
+  const h = _daemonHealthBody;
+  if (!h || h.status === undefined) return false;
+  return h.version !== pkg.version || (h.root && h.root !== join(__dirname));
+}
 
 // Check if daemon is running (returns object with details, or false)
 function isDaemonRunning(returnDetails = false, force = false) {
@@ -254,12 +267,15 @@ function isDaemonRunning(returnDetails = false, force = false) {
   try {
     const token = getDaemonToken();
     const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
-    const response = execSync(`curl -s -o ${nullDevice} -w "%{http_code}"${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
+    // one spawn returns both the body (version, bound file) and the status code
+    const response = execSync(`curl -s -w "\\n%{http_code}"${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
       encoding: 'utf8',
       stdio: 'pipe',
       timeout: 1000
     });
-    const statusCode = response.trim();
+    const lines = response.trim().split('\n');
+    const statusCode = lines.pop().trim();
+    try { _daemonHealthBody = JSON.parse(lines.join('\n')); } catch { _daemonHealthBody = null; }
 
     if (returnDetails) {
       return {
@@ -400,8 +416,9 @@ function daemonPinMismatch() {
 }
 
 async function ensureDaemonRunning(maxWaitMs = 5000) {
-  const mismatched = isDaemonRunning() && daemonPinMismatch();
-  if (isDaemonRunning() && !mismatched) return true;
+  const running = isDaemonRunning(false, true);
+  const mismatched = running && (daemonPinMismatch() || daemonCodeMismatch());
+  if (running && !mismatched) return true;
   if (mismatched) {
     // Rebind: the daemon holds ONE CDP connection, fixed at startup.
     stopDaemon();

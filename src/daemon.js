@@ -22,6 +22,9 @@ import { homedir, tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { wrapCodeIfNeeded } from './lib/eval-wrap.js';
 
+const DAEMON_ROOT = dirname(fileURLToPath(import.meta.url));
+const DAEMON_VERSION = (() => { try { return JSON.parse(readFileSync(join(DAEMON_ROOT, '..', 'package.json'), 'utf8')).version; } catch { return null; } })();
+
 // Hot-reload FigmaClient: copy to temp file and import (Node.js ES modules don't support cache busting)
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const figmaClientPath = join(__dirname, 'figma-client.js');
@@ -360,6 +363,11 @@ async function handleRequest(req, res) {
       // FIGMA_FILE and rebinds when they diverge — otherwise commands silently
       // hit whichever file happened to be first when the daemon started.
       file: (cdpClient && cdpClient.pageTitle) || null,
+      // Which figma-cli code this daemon runs. After an update the old daemon
+      // would keep serving render-batch and eval with old code until it idles
+      // out; the CLI restarts it when these do not match its own.
+      version: DAEMON_VERSION,
+      root: DAEMON_ROOT,
       idleTimeoutMs: IDLE_TIMEOUT_MS
     }));
     return;

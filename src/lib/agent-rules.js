@@ -79,7 +79,10 @@ Helpers available inside \`eval\` (they handle the Figma pitfalls for you):
 - \`render\` prints the new node id and **the structure it built**: sizes, layout,
   padding, gap, bound variables, styles, which component each instance uses.
   Check that output; do not re-read the result with \`eval\`. \`--verify\` adds a
-  screenshot when the look matters.
+  screenshot when the look matters. \`figma-cli verify <id> --scale 2\` saves a
+  sharper PNG to read (the default is a small 0.5x preview).
+- Instances on the canvas without a wrapper: \`render '<Instance component="Card" />'\`
+  or several at once with \`render-batch\`.
 
 ## Components
 - One component: \`render '<Frame ...>' --as-component\`.
