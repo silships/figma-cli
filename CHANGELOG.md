@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.3 (2026-09-26)
+
+### Added
+
+- `render --file ui.jsx` and `render-batch --file frames.json` read the JSX from a file, so long or generated layouts need no shell quoting
+- Text layers take `name="..."` and `decoration="strikethrough|underline"`
+- `<Text>` and `<Instance>` accept `position="absolute" x y` like frames do
+- Bare numbers such as `x=48` are read as numbers
+- `<Instance tint="#hex|var:name">` recolors the vectors inside an instance, for example an icon per state
+
+### Changed
+
+- Icons load with one request per icon set and are cached on disk in `~/.figma-ds-cli/icons`, so a flaky network no longer turns them into placeholders
+- When an icon cannot be loaded, render says so in a `note:` line instead of silently drawing a square
+- Frames with auto-layout keep strokes out of the layout, like the Figma editor. Children with `w="fill"` span the full width inside a bordered card
+
 ## 2.2.2 (2026-09-25)
 
 ### Added

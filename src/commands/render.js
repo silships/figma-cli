@@ -204,10 +204,11 @@ function getNextFreeY(gap = 100) {
 }
 
 program
-  .command('render <jsx>')
+  .command('render [jsx]')
   .description('Render JSX to Figma (use --as-component to also convert result to a Figma component)')
   .option('--parent <id>', 'Parent node ID')
   .option('--page <name>', 'Render on this page (switches to it, creates it when missing)')
+  .option('-f, --file <path>', 'Read the JSX from a file (no shell quoting to get wrong)')
   .option('-x <n>', 'X position')
   .option('-y <n>', 'Y position')
   .option('--no-smart-position', 'Disable auto-positioning')
@@ -217,7 +218,9 @@ program
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `figma-cli verify` roundtrip')
   .action(async (rawJsx, options) => {
-    const jsx = unescapeShell(rawJsx);
+    if (options.file) rawJsx = readFileSync(options.file, 'utf8');
+    if (!rawJsx) { console.log(chalk.red('✗ Pass the JSX as an argument or with --file <path>')); return; }
+    const jsx = options.file ? rawJsx : unescapeShell(rawJsx);
     warnUnknownProps([jsx]);
     await checkConnection();
     await switchToPage(options.page);
@@ -327,7 +330,8 @@ program
 program
   .command('render-batch')
   .description('Render multiple JSX frames in a single call (fast). Pass --as-component to promote each rendered frame to a Figma Component.')
-  .argument('<jsxArray>', 'JSON array of JSX strings, e.g. \'["<Frame>...</Frame>","<Frame>...</Frame>"]\'')
+  .argument('[jsxArray]', 'JSON array of JSX strings, e.g. \'["<Frame>...</Frame>","<Frame>...</Frame>"]\'')
+  .option('-f, --file <path>', 'Read the JSON array of JSX strings from a file')
   .option('--page <name>', 'Render on this page (switches to it, creates it when missing)')
   .option('-g, --gap <n>', 'Gap between frames', '40')
   .option('-d, --direction <dir>', 'Layout direction: row (horizontal) or col (vertical)', 'row')
@@ -336,6 +340,8 @@ program
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
   .action(async (jsxArrayStr, options) => {
+    if (options.file) jsxArrayStr = readFileSync(options.file, 'utf8');
+    if (!jsxArrayStr) { console.log(chalk.red('✗ Pass a JSON array of JSX strings or --file <path>')); return; }
     await switchToPage(options.page);
     await checkConnection();
     try {

@@ -118,3 +118,32 @@ describe('self-closing tags with URLs and centered text', () => {
     assert.ok(!plain.includes("textAlignHorizontal = 'CENTER'"));
   });
 });
+
+describe('round 2 fixes', () => {
+  const c = new FigmaClient();
+  it('reads bare numbers like x=48 and decimals', () => {
+    assert.deepStrictEqual(c.parseProps('x=48 y=2.5 w={10} name="a"'), { x: '48', y: '2.5', w: '10', name: 'a' });
+  });
+  it('names text layers, strikes through, and positions text absolutely', async () => {
+    const code = await c.parseJSX('<Frame flex="row" w={200} h={50}><Text name="Old price" decoration="strikethrough" position="absolute" x={10} y={5}>$9</Text></Frame>');
+    assert.ok(code.includes('.name = "Old price"'));
+    assert.ok(code.includes("textDecoration = 'STRIKETHROUGH'"));
+    assert.ok(code.includes("layoutPositioning = 'ABSOLUTE'"));
+  });
+  it('positions instances absolutely', async () => {
+    const code = await c.parseJSX('<Frame flex="row" w={200} h={50}><Instance component="Badge" position="absolute" x={8} y={8} /></Frame>');
+    assert.ok(code.includes("layoutPositioning = 'ABSOLUTE'"));
+  });
+});
+
+describe('strokes and instance tint', () => {
+  const c = new FigmaClient();
+  it('keeps strokes out of the auto-layout like the Figma editor does', async () => {
+    const code = await c.parseJSX('<Frame flex="col" w={280} stroke="#ddd"><Frame w="fill" h={10} /></Frame>');
+    assert.ok(code.includes('frame.strokesIncludedInLayout = false'));
+  });
+  it('tints the vectors of an instance', async () => {
+    const code = await c.parseJSX('<Frame flex="row"><Instance component="Icon" tint="#E11D48" /></Frame>');
+    assert.ok(code.includes('__tint'));
+  });
+});

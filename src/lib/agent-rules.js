@@ -65,7 +65,7 @@ Helpers available inside \`eval\` (they handle the Figma pitfalls for you):
 - \`var:\` takes any variable by full name: \`bg="var:bgColor/muted"\`, \`color="var:fgColor/default"\`.
 - Styles by name: \`<Frame effectStyle="shadow/small">\`, \`<Text textStyle="Body/Medium">\`.
 - Existing components, any page: \`<Instance component="Button" variant="variant=danger, size=large" text="Delete" />\`
-  (\`text\` relabels the first text layer).
+  (\`text\` relabels the first text layer, \`tint="var:accent"\` recolors an icon instance).
 - A component text or style whose font is not installed is switched to Inter
   automatically and reported as a \`note:\` line. You do not need to fix fonts.
 - Images from the web: \`<Frame image="https://..." imageScale="fill|fit" .../>\` or
@@ -73,6 +73,9 @@ Helpers available inside \`eval\` (they handle the Figma pitfalls for you):
 - Overlays and badges: \`position="absolute" x={0} y={0}\` takes a child out of the
   auto-layout flow (a named child). Clip children to rounded corners with \`overflow="hidden"\`.
 - Text in a column with \`items="center"\` is centered automatically; set \`align\` to override.
+- Long or generated JSX: write it to a file and run \`render --file ui.jsx\`
+  (\`render-batch --file frames.json\` takes a JSON array). No shell quoting to get wrong.
+- Text: \`name="..."\` names the layer, \`decoration="strikethrough|underline"\`.
 - \`render\` prints the new node id and **the structure it built**: sizes, layout,
   padding, gap, bound variables, styles, which component each instance uses.
   Check that output; do not re-read the result with \`eval\`. \`--verify\` adds a
