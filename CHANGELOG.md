@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.5 (2026-09-26)
+
+### Fixed
+
+- The daemon is only restarted when it runs an older version than the CLI. With two installs of different versions (global and project-local) they no longer restart each other on every command; the newer daemon stays
+
 ## 2.2.4 (2026-09-26)
 
 ### Fixed

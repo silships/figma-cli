@@ -246,16 +246,26 @@ const DAEMON_HEALTH_TTL_MS = 2000;
 function invalidateDaemonHealthCache() { _daemonHealthCache = { time: 0, value: null }; }
 let _daemonHealthBody = null;
 
+// true when version a is older than b (plain x.y.z)
+function versionOlder(a, b) {
+  const p = v => String(v || '0').split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); }
+  return false;
+}
+
 /**
- * True when the running daemon was started from different figma-cli code:
- * another version (after npm update) or another install path. render-batch and
- * eval run INSIDE the daemon, so a stale one silently serves old behaviour.
- * A daemon too old to report its version counts as stale.
+ * True when the running daemon runs OLDER figma-cli code than this CLI (after
+ * npm update). render-batch and eval run INSIDE the daemon, so a stale one
+ * silently serves old behaviour. A daemon too old to report its version counts
+ * as older. Only older, never merely different: with two installs of different
+ * versions (global and project-local) "restart on any mismatch" made them
+ * restart each other on every command; this way the newer one wins and stays.
  */
 function daemonCodeMismatch() {
   const h = _daemonHealthBody;
   if (!h || h.status === undefined) return false;
-  return h.version !== pkg.version || (h.root && h.root !== join(__dirname));
+  return !h.version || versionOlder(h.version, pkg.version);
 }
 
 // Check if daemon is running (returns object with details, or false)
@@ -991,6 +1001,7 @@ async function isInSafeMode() {
 }
 
 export {
+  versionOlder,
   CONFIG_DIR,
   CONFIG_FILE,
   DAEMON_PID_FILE,
