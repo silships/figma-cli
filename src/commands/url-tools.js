@@ -1,7 +1,7 @@
 // Commands: url-tools (extracted from index.js)
 import chalk from 'chalk';
 import ora from 'ora';
-import { execSync } from 'child_process';
+import { execSync, execFileSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -32,13 +32,13 @@ program
     try {
       const tempFile = join(tmpdir(), 'figma-cli-screenshot.png');
 
-      // Build capture-website command
-      let cmd = `npx --yes capture-website-cli "${url}" --output="${tempFile}" --width=${options.width} --height=${options.height} --scale-factor=${options.scale}`;
-      if (options.full) cmd += ' --full-page';
-      cmd += ' --overwrite';
+      // Build capture-website command arguments (array avoids shell injection)
+      const args = ['--yes', 'capture-website-cli', url, `--output=${tempFile}`, `--width=${options.width}`, `--height=${options.height}`, `--scale-factor=${options.scale}`];
+      if (options.full) args.push('--full-page');
+      args.push('--overwrite');
 
       // Take screenshot
-      execSync(cmd, { stdio: 'ignore', timeout: 60000 });
+      execFileSync('npx', args, { stdio: 'ignore', timeout: 60000 });
 
       if (!existsSync(tempFile)) {
         throw new Error('Screenshot failed');
