@@ -53,7 +53,7 @@ Security review of figma-cli is mostly a question of what the three connection m
 ### Data and credentials
 
 - No telemetry, no analytics, no phone-home. Outbound requests happen only where a command needs them: `<Icon>` fetches the SVG from the Iconify API, `recreate-url` / `screenshot-url` / Storybook import load the URL you passed, image props load the image URL you passed, and the background-removal command uploads the exported image to remove.bg with your own API key. Nothing leaves the machine on its own.
-- **No Figma API key is involved.** The tool never asks for one and never sees your Figma token.
+- **No Figma API key is involved**, with one opt-in exception: `figma-cli comments list` reads comment threads from the Figma REST API (`api.figma.com`), because the Plugin API cannot see comments in any connection mode. It needs a personal access token you create yourself (scopes *File content: Read* and *Comments: Read*), taken from `FIGMA_ACCESS_TOKEN` or stored with `figma-cli comments token set`. The token is only sent to `api.figma.com`, only when you run that command, and is never printed (`token status` shows it masked). Without a token nothing is sent.
 - Credentials for optional plugins (for example a voice API key) go into the macOS Keychain, or on Linux into `~/.config/figma-cli/credentials` with mode 600.
 
 ## Scope
