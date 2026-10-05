@@ -7,7 +7,7 @@ export const ALL = [
   'setup', 'variables', 'daemon', 'tokens', 'gradient', 'create', 'url-tools',
   'config', 'canvas-ops', 'render', 'export-eval', 'analyze', 'a11y',
   'node-ops', 'slots', 'figjam', 'variants', 'misc', 'extract', 'rules',
-  'snapshot', 'spec', 'instantiate', 'init', 'motion',
+  'snapshot', 'spec', 'instantiate', 'init', 'motion', 'docs',
 ];
 
 /**
@@ -112,4 +112,5 @@ export const COMMAND_MODULES = {
   instantiate: ['instantiate'],
   'init-agent': ['init'],
   motion: ['motion'],
+  docs: ['docs'],
 };
