@@ -173,6 +173,16 @@ People keep asking how figma-cli differs from **Figma's official MCP** and from 
 | **Works offline** | yes | no |
 | **Setup** | one `connect` command | token + plugin/bridge + (for some) port wrangling |
 
+### The one exception: reading comments
+
+The Plugin API cannot see comment threads, in any connection mode, so reviewing a file's feedback was impossible from the CLI. `figma-cli comments list` fills that gap with a single, opt-in REST call: it needs a personal access token (Figma → Settings → Security, scopes *File content: Read* and *Comments: Read*) and shows each thread against the layer it is pinned to. Nothing else in figma-cli uses the token, and without one nothing is sent.
+
+```bash
+figma-cli comments token set        # hidden prompt, stored in the Keychain
+figma-cli comments list             # unresolved threads, "screen › layer" per pin
+figma-cli comments list --node <id> --all --json
+```
+
 ### Why "no rate limit" is a real, structural advantage
 Figma's APIs are rate-limited, and any tool built on them (Figma's official MCP included) runs into the same ceiling. The official MCP caps the tools that *read* from Figma by seat: just **6 calls per month** on a View/Collab seat, and **200 to 600 per day** (10 to 20 per minute) even on a paid Dev/Full seat ([source](https://developers.figma.com/docs/figma-mcp-server/rate-limits-access)). AI agents read constantly, so they burn through those fast, then sit in 429 cooldowns. figma-cli sidesteps all of it because it never calls the API: it drives Figma Desktop locally over CDP. No token, no 429, works offline.
 

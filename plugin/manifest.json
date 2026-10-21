@@ -7,6 +7,7 @@
   "capabilities": [],
   "permissions": ["teamlibrary"],
   "enableProposedApi": false,
+  "enablePrivatePluginApi": true,
   "editorType": ["figma", "figjam"],
   "documentAccess": "dynamic-page",
   "networkAccess": {
