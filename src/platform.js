@@ -186,6 +186,9 @@ export function killFigmaApp() {
 // Windows-only helpers (only defined on Windows)
 let findWindowsFigmaPath, findWindowsFigmaExe;
 
+// Newest first, numerically: a plain sort ranks app-126.9.16 above app-126.10.13
+const byVersionDesc = (a, b) => b.localeCompare(a, undefined, { numeric: true });
+
 if (PLATFORM === 'win32') {
   findWindowsFigmaPath = function() {
     const localAppData = process.env.LOCALAPPDATA;
@@ -198,8 +201,7 @@ if (PLATFORM === 'win32') {
       const entries = readdirSync(figmaBase);
       const appFolders = entries
         .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
+        .sort(byVersionDesc);
 
       for (const folder of appFolders) {
         const asarPath = join(figmaBase, folder, 'resources', 'app.asar');
@@ -225,8 +227,7 @@ if (PLATFORM === 'win32') {
       const entries = readdirSync(figmaBase);
       const appFolders = entries
         .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
+        .sort(byVersionDesc);
 
       for (const folder of appFolders) {
         const exePath = join(figmaBase, folder, 'Figma.exe');
