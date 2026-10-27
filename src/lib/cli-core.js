@@ -1,5 +1,6 @@
 // Shared CLI core: daemon plumbing, figma eval helpers, config, program.
 // Extracted from index.js — all command modules import from here.
+import { classifyDaemonError, timeoutMessage } from './timeouts.js';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -47,6 +48,9 @@ function unescapeShell(str) {
  *  - outer is a single <Frame ...> with a flex direction
  *  - outer contains ≥ 2 direct <Frame> children (depth-aware)
  *  - all direct children are <Frame>s (no orphan <Text>, <Icon>, etc.)
+ *  - no direct child fills or grows (w="fill", h="fill", grow): those take
+ *    their size from the wrapper
+ *  - the outer is not variant-named ("prop=value"): that is a component
  *  - bg/fill on the outer is fine; the wrapper visual is dropped on purpose
  *    because the canonical pattern is "N standalone items", not "N items in a
  *    bag". Callers who really want the wrapper can pass --keep-wrapper.
@@ -116,6 +120,14 @@ function detectWrapperSplit(jsx) {
   }
   if (nonFrameChildSeen) return null;
   if (children.length < 2) return null;
+  // A variant-named outer ("Type=grid, Size=desktop") is a component being
+  // built, never "N standalone items".
+  const outerName = (outerAttrs.match(/\bname\s*=\s*"([^"]*)"/) || [])[1] || '';
+  if (outerName.includes('=')) return null;
+  // Children that fill or grow take their size from the wrapper; split out to
+  // the canvas they would have nothing to fill.
+  const openTag = (c) => (c.match(/^<Frame\b[^>]*>/) || [''])[0];
+  if (children.some((c) => /\b(?:w|h)\s*=\s*["']fill["']|\bgrow\s*=/.test(openTag(c)))) return null;
   // Don't split distinct-child composites. A real "N items in a row" pattern
   // has children that share a base name (Button 1/2/3, Card A/B/C) or are
   // structurally interchangeable. A composite has children with unrelated
@@ -380,8 +392,15 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
     if (result.error) throw new Error(result.error);
     return result.result;
   } catch (e) {
-    if (e.name === 'TimeoutError' || e.message.includes('timeout')) {
-      throw new Error(`Execution timeout (${timeoutMs/1000}s). Try reconnecting: node src/index.js connect`);
+    // Only the client's own abort is relabelled. A timeout reported by the
+    // daemon carries its real budget ("Execution timeout (30s)") and used to
+    // be rewritten here as this function's 90s, hiding which limit fired.
+    if (e.name === 'TimeoutError' || e.name === 'AbortError') {
+      throw new Error(timeoutMessage(timeoutMs / 1000));
+    }
+    if (classifyDaemonError(e) === 'timeout') {
+      const m = e.message.match(/\((\d+)s\)/);
+      throw new Error(timeoutMessage(m ? Number(m[1]) : timeoutMs / 1000));
     }
     throw e;
   }
@@ -461,7 +480,9 @@ async function fastEval(code) {
     try {
       return await daemonExec('eval', { code });
     } catch (e) {
-      // Continue to fallback
+      // Fall back only when nothing ran. After a timeout the code may still
+      // be executing in Figma; running it again could duplicate its work.
+      if (classifyDaemonError(e) !== 'connection') throw e;
     }
   }
 

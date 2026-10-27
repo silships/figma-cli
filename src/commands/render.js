@@ -1,4 +1,5 @@
 // Commands: render (extracted from index.js)
+import { RENDER_TIMEOUT_MS } from '../lib/timeouts.js';
 import chalk from 'chalk';
 import { execSync } from 'child_process';
 import { join } from 'path';
@@ -293,7 +294,8 @@ program
         y: options.y !== undefined ? posY : undefined,
         parent: options.parent,
       });
-      const result = await daemonExec('eval', { code });
+      // Rendering creates nodes: give it the render budget, not the 30s eval one.
+      const result = await daemonExec('eval', { code, timeoutMs: RENDER_TIMEOUT_MS }, RENDER_TIMEOUT_MS + 5000);
       if (!result || !result.id) {
         throw new Error('Render returned no node id');
       }
