@@ -10,6 +10,7 @@ import { getCdpPort } from '../figma-patch.js';
 import {
   program,
   CONFIG_DIR,
+  DAEMON_PORT,
   checkConnection,
   daemonExec,
   detectWrapperSplit,
@@ -527,7 +528,7 @@ program
 
     // 6. Daemon status
     if (isDaemonRunning()) {
-      console.log(chalk.green('✓ Daemon running on port 3456'));
+      console.log(chalk.green('✓ Daemon running on port ' + DAEMON_PORT));
     } else {
       console.log(chalk.yellow('○ Daemon not running (optional, speeds up commands)'));
     }
