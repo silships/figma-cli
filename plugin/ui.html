@@ -35,6 +35,20 @@
     .title { font-weight: 600; font-size: 12px; }
     #status { color: #aaa; }
     .hint { font-size: 9px; color: #666; margin-top: 2px; }
+    #takeover {
+      display: none;
+      margin-top: 2px;
+      font: inherit;
+      font-size: 10px;
+      color: #fff;
+      background: #444;
+      border: 0;
+      border-radius: 3px;
+      padding: 3px 6px;
+      cursor: pointer;
+      text-align: left;
+    }
+    #takeover:hover { background: #555; }
   </style>
 </head>
 <body>
@@ -43,85 +57,116 @@
     <div id="dot" class="dot connecting"></div>
     <span id="status">Connecting...</span>
   </div>
-  <div class="hint">Keep this window open</div>
+  <div id="hint" class="hint">Keep this window open</div>
+  <button id="takeover"></button>
 
   <script>
-    // Scan ports 3456-3460 in PARALLEL for fast connection
+    // One daemon per CLI session (DAEMON_PORT), on ports 3456-3460. Ports are
+    // tried in order and this window joins the first one that is free, so two
+    // FigCli windows in two files land on two sessions instead of fighting over
+    // one. A daemon that already serves another file answers "busy".
     const PORTS = [3456, 3457, 3458, 3459, 3460];
+    const FILE = "__FIGCLI_FILE__"; // replaced by code.js
+    const INSTANCE = Math.random().toString(36).slice(2) + Date.now().toString(36);
     let ws = null;
     let reconnectTimer = null;
     let keepaliveTimer = null;
+    let scanning = false;
     const statusEl = document.getElementById('status');
     const dotEl = document.getElementById('dot');
+    const hintEl = document.getElementById('hint');
+    const takeoverEl = document.getElementById('takeover');
 
-    function setStatus(text, state) {
+    function setStatus(text, state, hint) {
       statusEl.textContent = text;
       dotEl.className = 'dot ' + state;
+      hintEl.textContent = hint || 'Keep this window open';
     }
 
-    // Try all ports in parallel, use first successful connection
-    function connectParallel() {
-      if (ws && ws.readyState === WebSocket.OPEN) return;
+    function showTakeover(busy) {
+      if (!busy) { takeoverEl.style.display = 'none'; return; }
+      takeoverEl.textContent = `Take over port ${busy.port} from “${busy.file}”`;
+      takeoverEl.onclick = () => { showTakeover(null); scan(busy.port); };
+      takeoverEl.style.display = 'block';
+    }
 
-      setStatus('Scanning...', 'connecting');
-      let connected = false;
-      const attempts = [];
+    // Open one port and say hello. Resolves 'welcome' with the open socket,
+    // 'busy' with the file that daemon serves, or 'none'. A daemon from before
+    // this change never answers, but did accept the connection, so silence
+    // after open counts as welcome.
+    function tryPort(port, claim) {
+      return new Promise(resolve => {
+        let done = false;
+        let socket;
+        const finish = (result) => {
+          if (done) return;
+          done = true;
+          clearTimeout(timer);
+          socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null;
+          if (result.status !== 'welcome') { try { socket.close(); } catch {} }
+          resolve(result);
+        };
+        const timer = setTimeout(() => finish({ status: 'none' }), 600);
+        try { socket = new WebSocket(`ws://127.0.0.1:${port}/plugin`); }
+        catch { clearTimeout(timer); resolve({ status: 'none' }); return; }
 
-      PORTS.forEach(port => {
-        const url = `ws://127.0.0.1:${port}/plugin`;
-        try {
-          const socket = new WebSocket(url);
-          attempts.push(socket);
-
-          socket.onopen = () => {
-            if (connected) {
-              socket.close();
-              return;
-            }
-            connected = true;
-            ws = socket;
-
-            // Close other attempts (silently, no handlers)
-            attempts.forEach(s => {
-              if (s !== socket) {
-                s.onclose = null;  // Prevent triggering reconnect
-                s.onerror = null;
-                try { s.close(); } catch {}
-              }
-            });
-
-            // NOW set handlers on winning socket only
-            ws.onmessage = handleMessage;
-            ws.onclose = handleClose;
-            ws.onerror = handleClose;
-
-            setStatus('Connected', 'connected');
-            parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
-
-            // Send hello
-            ws.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.3.0' }));
-
-            // Start keepalive (ping every 10s)
-            startKeepalive();
-          };
-
-          // During scan: ignore close/error (don't trigger reconnect)
-          socket.onclose = () => {};
-          socket.onerror = () => {};
-        } catch (e) {}
+        socket.onopen = () => {
+          socket.send(JSON.stringify({ type: 'hello', mode: 'plugin', version: '1.4.0', instance: INSTANCE, file: FILE, claim }));
+          clearTimeout(timer);
+          setTimeout(() => finish({ status: 'welcome', socket, port }), 500);
+        };
+        socket.onmessage = (event) => {
+          let msg = {};
+          try { msg = JSON.parse(event.data); } catch {}
+          if (msg.type === 'welcome') finish({ status: 'welcome', socket, port });
+          if (msg.type === 'busy') finish({ status: 'busy', port, file: msg.file || 'another file' });
+        };
+        socket.onclose = socket.onerror = () => finish({ status: 'none' });
       });
+    }
 
-      // If no connection after 1.5s, retry (faster than 3s)
-      setTimeout(() => {
-        if (!connected) {
-          attempts.forEach(s => {
-            s.onclose = null;
-            try { s.close(); } catch {}
-          });
-          clearTimeout(reconnectTimer);
-          reconnectTimer = setTimeout(connectParallel, 300);
+    function adopt(socket, port) {
+      ws = socket;
+      ws.onmessage = handleMessage;
+      ws.onclose = handleClose;
+      ws.onerror = handleClose;
+      showTakeover(null);
+      setStatus(`Connected · port ${port}`, 'connected');
+      parent.postMessage({ pluginMessage: { type: 'connected' } }, '*');
+      startKeepalive();
+    }
+
+    // claimPort: take that port over even if it serves another file.
+    async function scan(claimPort) {
+      if (ws && ws.readyState === WebSocket.OPEN) return;
+      if (scanning) return;
+      scanning = true;
+      clearTimeout(reconnectTimer);
+      if (!claimPort) setStatus('Scanning...', 'connecting');
+
+      const ports = claimPort ? [claimPort] : PORTS;
+      let firstBusy = null;
+      for (const port of ports) {
+        const result = await tryPort(port, port === claimPort);
+        if (result.status === 'welcome') {
+          scanning = false;
+          adopt(result.socket, result.port);
+          return;
         }
-      }, 1500);
+        if (result.status === 'busy' && !firstBusy) firstBusy = result;
+      }
+      scanning = false;
+
+      if (firstBusy) {
+        // Every running session already has a file. Keep looking: a new session
+        // starting its daemon on a free port is picked up on the next scan.
+        setStatus('Waiting for a free CLI session', 'connecting', 'Start figma-cli with DAEMON_PORT=3457 in the other session');
+        showTakeover(firstBusy);
+        reconnectTimer = setTimeout(() => scan(), 2000);
+      } else {
+        showTakeover(null);
+        reconnectTimer = setTimeout(() => scan(), 300);
+      }
     }
 
     function handleMessage(event) {
@@ -150,6 +195,11 @@
         if (msg.type === 'pong') {
           lastPong = Date.now();
         }
+
+        // Another FigCli window took over our port on purpose
+        if (msg.type === 'replaced') {
+          setStatus(`Replaced on port ${msg.port}`, 'connecting', `Now serving “${msg.file}”. Looking for a free session…`);
+        }
       } catch (e) {
         console.error('Message parse error:', e);
       }
@@ -165,7 +215,7 @@
 
         // Fast reconnect (200ms)
         clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectParallel, 200);
+        reconnectTimer = setTimeout(() => scan(), 200);
       }
     }
 
@@ -195,7 +245,7 @@
     }
 
     // Legacy function name for compatibility
-    function connect() { connectParallel(); }
+    function connect() { scan(); }
 
     // Receive results from plugin main thread
     window.onmessage = (event) => {

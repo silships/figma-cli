@@ -187,9 +187,25 @@ function buildNodeSelector(options, { filterExpr = '' } = {}) {
 }
 
 // Daemon configuration
-const DAEMON_PORT = 3456;
-const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
-const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', '.daemon-token');
+// DAEMON_PORT gives each agent session its own daemon, so two sessions can drive
+// two open files at once. The FigCli plugin only scans 3456-3460, so a port
+// outside that range would never get a plugin. Port 3456 keeps the original
+// PID/token paths, so a single-session setup behaves exactly as before.
+const DAEMON_PORT_RANGE = [3456, 3457, 3458, 3459, 3460];
+function resolveDaemonPort() {
+  const raw = process.env.DAEMON_PORT;
+  if (!raw) return 3456;
+  const port = parseInt(raw, 10);
+  if (!DAEMON_PORT_RANGE.includes(port)) {
+    console.error(`DAEMON_PORT must be one of ${DAEMON_PORT_RANGE.join(', ')} (the ports the FigCli plugin scans), got "${raw}".`);
+    process.exit(1);
+  }
+  return port;
+}
+const DAEMON_PORT = resolveDaemonPort();
+const DAEMON_FILE_SUFFIX = DAEMON_PORT === 3456 ? '' : `-${DAEMON_PORT}`;
+const DAEMON_PID_FILE = join(homedir(), `.figma-cli-daemon${DAEMON_FILE_SUFFIX}.pid`);
+const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', `.daemon-token${DAEMON_FILE_SUFFIX}`);
 
 // Generate and save a new session token for daemon authentication
 function generateDaemonToken() {
@@ -292,7 +308,8 @@ function isDaemonRunning(returnDetails = false, force = false) {
         running: statusCode === '200',
         statusCode,
         hasToken: !!token,
-        authFailed: statusCode === '403'
+        authFailed: statusCode === '403',
+        pluginFile: (_daemonHealthBody && _daemonHealthBody.pluginFile) || null
       };
     }
     const ok = statusCode === '200';

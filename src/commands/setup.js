@@ -465,6 +465,9 @@ program
     const daemonInfo = isDaemonRunning(true);
     if (daemonInfo && daemonInfo.running) {
       console.log(chalk.green('  ✓ Daemon running') + chalk.gray(` (port ${DAEMON_PORT})`));
+      if (daemonInfo.pluginFile) {
+        console.log(chalk.green('  ✓ FigCli connected') + chalk.gray(` in "${daemonInfo.pluginFile}"`));
+      }
     } else if (daemonInfo && daemonInfo.authFailed) {
       console.log(chalk.yellow('  ⚠ Daemon running but token mismatch (auth failed).'));
       console.log(chalk.gray('    Restart with:  figma-cli daemon restart'));
