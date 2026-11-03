@@ -164,6 +164,17 @@ figma-cli talks to Figma in one of three ways. Claude picks one during setup , h
 - A little more manual (you start the plugin), but **zero modifications** to Figma itself , good if you, or your company's IT policy, don't want the app patched.
 - Tell Claude *"connect to Figma in safe mode"*.
 
+#### Two files at once (Safe Mode)
+Each AI session can drive its own file. Give each session its own port from 3456–3460 with `DAEMON_PORT` (the first one can keep the default, 3456):
+
+```bash
+DAEMON_PORT=3457 figma-cli canvas info
+```
+
+Run one command in each session first, so both daemons are up, then start FigCli in each file. Every FigCli window joins the lowest-numbered session that isn't already serving another file, and shows its port. If every running session is busy, the window waits and offers a **Take over** button. `figma-cli status` shows which file your session is connected to, so check it before building.
+
+With a single session nothing changes: a FigCli window opened in another file takes the session over, as before. The window it replaced waits for a free session instead of taking it back.
+
 **All three do exactly the same things.** Unsure? Use **Browser**. Working in the Figma Desktop app anyway? Use Yolo. Prefer the official plugin route? Use Safe. You can switch anytime , just ask Claude.
 
 ### Custom debug port (advanced)
