@@ -760,6 +760,11 @@ mismatch instead of letting Figma invent bogus "Property 1" axes.
 2. Ask connection mode (Yolo, Browser, or Safe). Pick **Browser** if the user
    doesn't want the local Figma app modified/patched.
 3. Run `figma-cli connect` (or `--browser`, or `--safe`)
+   - **Browser mode: tell the designer BEFORE running it.** The command waits
+     silently until a design file is open and the designer watches the browser,
+     not the chat. Say: "A Chrome window opens in a moment. Sign in to Figma
+     there and open a design file. I connect by myself as soon as it is open."
+     A banner inside the Figma window repeats this while connect waits.
 4. When connected, say: "Connected! What would you like to create?"
 
 If permission error (macOS 13+): System Settings > Privacy & Security > App Management > enable your terminal (Full Disk Access alone does not allow patching Figma). Or use Safe Mode: `figma-cli connect --safe`

@@ -19,6 +19,11 @@ export const RULES_BODY = `# Using figma-cli
 figma-cli controls **Figma Desktop** directly (no API key). It runs in any
 terminal. Open Figma Desktop, then \`figma-cli connect\` once per session.
 
+**Browser Mode** (\`figma-cli connect --browser\`, Figma in Chrome, the app is never
+modified): the command waits silently until a design file is open, so tell the
+designer BEFORE running it: "A Chrome window opens in a moment. Sign in to
+Figma there and open a design file. I connect by myself as soon as it is open."
+
 ## Golden rules
 1. **Create frames with \`render\` / \`render-batch\`** — they have smart positioning.
    NEVER use \`eval\` to create visual nodes (no positioning, bypasses guards).
@@ -122,6 +127,7 @@ Don't read the structure markdown by hand. Use:
 ## Handy commands
 \`\`\`
 figma-cli connect                      # connect to Figma Desktop (yolo)
+figma-cli connect --browser            # Figma in Chrome, app never modified
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row
 figma-cli shadcn add button --count 3  # N distinct shadcn primitives
