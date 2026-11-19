@@ -41,40 +41,31 @@ It works with real, editable Figma , actual frames, components, variants and var
 
 ---
 
-## Setup , let your AI do it for you
+## Setup in 4 steps
 
-You don't install this by hand. You use an **AI coding assistant** , **Claude Code** (recommended, what most people use) or **Cursor** , point it at this project, and ask it to set everything up.
+You need **Google Chrome**, a **Figma account** and **Claude Code**. You never type a command yourself
 
-> **Using Cursor?** Jump to [Using Cursor](#using-cursor) for the one-line setup. The steps below are for Claude Code; everything the CLI does is identical in both.
+**1. Install Claude Code**
 
-### 1. Have these ready
-- **Google Chrome** ([download](https://www.google.com/chrome/)) and a **Figma account**. Edge, Brave and Chromium work too. figma-cli opens Figma in its own Chrome window and never touches the Figma app
-- **Claude Code** , Anthropic's AI assistant for your computer. [Install it here](https://docs.claude.com/en/docs/claude-code) (one command, takes a minute). *(Or use Cursor , see below.)*
+Claude Code is the AI assistant that runs figma-cli for you. [Install Claude Code](https://docs.claude.com/en/docs/claude-code)
 
-### 2. Get this project onto your computer
-Don't know git? No problem. Open Claude Code anywhere and paste:
+**2. Open Claude Code and paste this**
 
-> "Download the figma-cli project from https://github.com/silships/figma-cli into a folder in my home directory, then go into it."
+> Download github.com/silships/figma-cli into my home folder, set it up and connect it to Figma
 
-(Or, if you prefer: click the green **Code** button on the GitHub page → **Download ZIP** → unzip it.)
+**3. Sign in to Figma in the Chrome window that opens**
 
-### 3. Let Claude install and connect it
-Open Claude Code **inside the project folder** and say:
+You sign in only the first time. Then open a design file or create a new one. Claude connects as soon as the file is open
 
-> "Set up figma-cli and connect it to Figma in the browser."
+**4. Tell Claude what to build**
 
-A Chrome window opens. Sign in to Figma there once and open a design file. Claude connects by itself as soon as the file is open. You watch and don't type commands.
+> Create a primary button and a secondary button
 
-Prefer the Figma Desktop app? See [How it connects to Figma](#how-it-connects-to-figma-browser-yolo-or-safe-mode).
+Figma builds it in the Chrome window while you watch
 
-When it says it's connected, you're done. ✅
+**Next time** open Claude Code in the figma-cli folder and say "connect to Figma". Chrome opens your last file by itself
 
-### 4. Start designing , just talk
-Now describe what you want:
-
-> "Add my brand colors, then create a primary button and a secondary button."
-
-Claude builds it in Figma instantly.
+No Chrome? Edge, Brave and Chromium work too. Working in the Figma Desktop app instead? See [How it connects to Figma](#how-it-connects-to-figma-browser-yolo-or-safe-mode). Using Cursor? See [Using Cursor](#using-cursor)
 
 ---
 
