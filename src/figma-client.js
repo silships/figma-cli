@@ -191,6 +191,14 @@ export class FigmaClient {
     // in JSX overrides this. nullish = use the global "shadcn first, then any"
     // fallback in the var-cache loader.
     this.collectionFilter = null;
+    // Opt-in (render --auto-style): give a <Text> without textStyle= the file's
+    // text style when exactly one matches its size and weight.
+    this.autoTextStyle = false;
+  }
+
+  /** Turn automatic text-style matching on or off (textStyle= always applies). */
+  setAutoTextStyle(on) {
+    this.autoTextStyle = on === true;
   }
 
   /** Pin variable lookups to a specific collection (by case-insensitive name match). */
@@ -712,7 +720,7 @@ export class FigmaClient {
       const effectsCode = this.generateEffectsCode(props, `f${frameIdx}`);
       const imageCode = props.image ? this.generateImageFillCode(props.image, `f${frameIdx}`, props.imageScale) : '';
 
-      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap }, props.items || props.align || null);
+      const childCode = this.generateChildrenCode(children, `f${frameIdx}`, flex, { counter: { value: 0 }, prefix: `${frameIdx}_`, iconSvgMap, autoTextStyle: this.autoTextStyle }, props.items || props.align || null);
 
       return `
         const f${frameIdx} = figma.createFrame();
@@ -1511,6 +1519,18 @@ export class FigmaClient {
           const tTruncate = item.truncate === true || item.truncate === 'true';
           const tMaxLines = item.maxLines !== undefined ? parseInt(item.maxLines) : null;
 
+          // Text styles: explicit textStyle= always; auto-matching only with
+          // render --auto-style, and never on rich text with per-range
+          // formatting (mixed typography is deliberate).
+          const hasStyledRuns = (item._runs || []).some(r => r.style && Object.keys(r.style).length);
+          const autoStyle = ctx.autoTextStyle === true && !item.textStyle && !hasStyledRuns;
+          const explicitTypography = {};
+          if (item.size !== undefined) explicitTypography.size = Number(size);
+          if (item.font !== undefined) explicitTypography.family = family;
+          if (item.weight !== undefined || item.italic !== undefined) explicitTypography.weightStyle = style;
+          if (item.lineHeight !== undefined) explicitTypography.lineHeight = true;
+          if (item.letterSpacing !== undefined) explicitTypography.letterSpacing = true;
+
           const runStyleCode = (item._runs || [])
             .filter(r => r.style && Object.keys(r.style).length)
             .map(r => {
@@ -1553,17 +1573,23 @@ export class FigmaClient {
         ${tLetterSpacing ? `try { el${idx}.letterSpacing = ${tLetterSpacing}; } catch(e) {}` : ''}
         ${tAlign ? `el${idx}.textAlignHorizontal = '${tAlign}';` : ''}
         el${idx}.characters = ${JSON.stringify(item.content)};
-        ${item.textStyle ? `// Named text style. When its font is not installed Figma refuses the
-        // style outright, so keep the style's metrics on the fallback font and say so.
+        ${item.textStyle ? `// Named text style ("Heading/H1" or its tail "H1"; library styles in use
+        // resolve too). When its font is not installed Figma refuses the style
+        // outright, so keep the style's metrics on the fallback font and say so.
         try {
-          const __ts = await globalThis.__figHelpers.style(${JSON.stringify(String(item.textStyle))});
-          try { await figma.loadFontAsync(__ts.fontName); await el${idx}.setTextStyleIdAsync(__ts.id); }
+          const __ts = await globalThis.__figHelpers.textStyle(${JSON.stringify(String(item.textStyle))});
+          try {
+            await figma.loadFontAsync(__ts.fontName); await el${idx}.setTextStyleIdAsync(__ts.id);
+            const __cl = globalThis.__figHelpers.textStyleClashes(__ts, ${JSON.stringify(explicitTypography)});
+            if (__cl.length) globalThis.__figHelpers.note('textStyle="' + __ts.name + '" wins over ' + __cl.join(', ') + ' (writing those would detach the style, so they were dropped)');
+          }
           catch (e) {
             el${idx}.fontSize = __ts.fontSize;
             try { el${idx}.lineHeight = __ts.lineHeight; el${idx}.letterSpacing = __ts.letterSpacing; } catch (e2) {}
             globalThis.__figHelpers.note('text style "' + __ts.name + '" needs font "' + __ts.fontName.family + ' ' + __ts.fontName.style + '" which is not installed; applied its size and spacing with the fallback font instead');
           }
         } catch (e) { globalThis.__figHelpers.note(e.message); }` : ''}
+        ${autoStyle ? `await globalThis.__figHelpers.autoTextStyle(el${idx}, ${JSON.stringify({ size: Number(size), weightStyle: style, family, familyExplicit: item.font !== undefined })});` : ''}
         ${textFillCode.code}
         ${runStyleCode ? runStyleCode : ''}
         ${parentVar}.appendChild(el${idx});
@@ -2098,7 +2124,7 @@ export class FigmaClient {
     const collected = this.collectFontsAndVarUsage(children);
     if (collected.usesVars) usesVars = true;
 
-    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap }, props.items || props.align || null);
+    const childCode = this.generateChildrenCode(children, 'frame', flex, { counter: { value: 0 }, prefix: '', iconSvgMap, autoTextStyle: this.autoTextStyle }, props.items || props.align || null);
 
     const { alignVal, justifyVal } = resolveAlign(flex, props);
 
@@ -3562,10 +3588,12 @@ export class FigmaClient {
         };
 
         // Get local styles that reference library
-        const paintStyles = figma.getLocalPaintStyles();
-        const textStyles = figma.getLocalTextStyles();
-        const effectStyles = figma.getLocalEffectStyles();
-        const gridStyles = figma.getLocalGridStyles();
+        const [paintStyles, textStyles, effectStyles, gridStyles] = await Promise.all([
+          figma.getLocalPaintStylesAsync(),
+          figma.getLocalTextStylesAsync(),
+          figma.getLocalEffectStylesAsync(),
+          figma.getLocalGridStylesAsync(),
+        ]);
 
         paintStyles.forEach(s => {
           styles.paint.push({ id: s.id, name: s.name, key: s.key, remote: s.remote });
@@ -3603,7 +3631,7 @@ export class FigmaClient {
   async applyLibraryStyle(nodeId, styleKey, styleType = 'fill') {
     return await this.eval(`
       (async function() {
-        const node = figma.getNodeById(${JSON.stringify(nodeId)});
+        const node = await figma.getNodeByIdAsync(${JSON.stringify(nodeId)});
         if (!node) return { error: 'Node not found' };
 
         const style = await figma.importStyleByKeyAsync(${JSON.stringify(styleKey)});
@@ -3614,7 +3642,8 @@ export class FigmaClient {
         } else if (type === 'stroke' && 'strokeStyleId' in node) {
           node.strokeStyleId = style.id;
         } else if (type === 'text' && 'textStyleId' in node) {
-          node.textStyleId = style.id;
+          // Async setter: the sync assignment is rejected in dynamic-page documents.
+          await node.setTextStyleIdAsync(style.id);
         } else if (type === 'effect' && 'effectStyleId' in node) {
           node.effectStyleId = style.id;
         }

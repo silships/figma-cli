@@ -11,11 +11,18 @@
 // Kept as a source string because it is evaluated in the Figma sandbox, not in
 // Node. It installs itself on globalThis and is idempotent per version.
 
-export const HELPERS_VERSION = 6;
+import { normalizeWeight, buildStyleIndex, matchTextStyle } from './text-styles.js';
+
+export const HELPERS_VERSION = 7;
 
 export const HELPERS_SOURCE = `
 if (!globalThis.__figHelpers || globalThis.__figHelpers.v !== ${HELPERS_VERSION}) {
   const H = { v: ${HELPERS_VERSION} };
+  // Text style matching rules, embedded from src/lib/text-styles.js so the unit
+  // tests exercise exactly the code that runs here.
+  ${normalizeWeight.toString()}
+  ${buildStyleIndex.toString()}
+  ${matchTextStyle.toString()}
   // Notes for the caller (deduplicated). eval and render reset and print them.
   H.note = (msg) => { (globalThis.__figNotes || (globalThis.__figNotes = new Set())).add(msg); };
   let pagesLoaded = false;
@@ -101,11 +108,81 @@ if (!globalThis.__figHelpers || globalThis.__figHelpers.v !== ${HELPERS_VERSION}
     return s;
   };
 
+  // Text styles by name. Local styles first; library (remote) styles are only
+  // reachable by key, so the ones already used by a text on this page are
+  // harvested, and only when a name is not found locally (or for auto-match),
+  // because the harvest walks every text node of the page.
+  let textStyleCache = null;
+  H.textStyles = async (withRemote) => {
+    if (!textStyleCache) {
+      const styles = await figma.getLocalTextStylesAsync();
+      textStyleCache = { styles, index: buildStyleIndex(styles), remote: false };
+    }
+    if (withRemote && !textStyleCache.remote) {
+      const known = new Set(textStyleCache.styles.map(s => s.id));
+      const styles = textStyleCache.styles.slice();
+      try {
+        const ids = new Set();
+        for (const t of figma.currentPage.findAllWithCriteria({ types: ['TEXT'] })) {
+          const id = t.textStyleId;
+          if (typeof id === 'string' && id && !known.has(id)) ids.add(id);
+        }
+        for (const id of ids) {
+          const st = await figma.getStyleByIdAsync(id);
+          if (st && st.type === 'TEXT') styles.push(st);
+        }
+      } catch (e) {}
+      textStyleCache = { styles, index: buildStyleIndex(styles), remote: true };
+    }
+    return textStyleCache;
+  };
+  // "Heading/H1", or its tail "H1" (like var: names).
+  H.textStyle = async (name) => {
+    let c = await H.textStyles(false);
+    if (!c.index[name]) c = await H.textStyles(true);
+    const s = c.index[name];
+    if (s) return s;
+    const names = c.styles.map(x => x.name);
+    throw new Error('text style "' + name + '" not found' +
+      (names.length ? ' (available: ' + names.slice(0, 8).join(', ') + (names.length > 8 ? ', …' : '') + ')' : ' (this file has no text styles)'));
+  };
+  // A styled text node must not get fontSize/fontName/lineHeight/letterSpacing
+  // written afterwards: Figma clears textStyleId on those writes. Explicit props
+  // that disagree with the style are reported instead of applied.
+  H.textStyleClashes = (style, e) => {
+    const out = [];
+    if (!e) return out;
+    if (e.size !== undefined && Number(e.size) !== Number(style.fontSize)) out.push('size={' + e.size + '} vs ' + style.fontSize + 'px');
+    if (e.weightStyle && normalizeWeight(e.weightStyle) !== normalizeWeight(style.fontName.style)) out.push('weight "' + e.weightStyle + '" vs ' + style.fontName.style);
+    if (e.family && e.family.toLowerCase() !== style.fontName.family.toLowerCase()) out.push('font "' + e.family + '" vs ' + style.fontName.family);
+    if (e.lineHeight) out.push('lineHeight');
+    if (e.letterSpacing) out.push('letterSpacing');
+    return out;
+  };
+  // Opt-in (render --auto-style): apply the file's style when EXACTLY one
+  // matches this text's size and weight. Several or none: nothing, plus a note.
+  H.autoTextStyle = async (node, want) => {
+    try {
+      const c = await H.textStyles(true);
+      if (!c.styles.length) return;
+      const r = matchTextStyle({ styles: c.styles, size: want.size, weightStyle: want.weightStyle, family: want.family, familyExplicit: want.familyExplicit });
+      const label = want.size + 'px ' + want.weightStyle;
+      if (r.match) {
+        try { await figma.loadFontAsync(r.match.fontName); await node.setTextStyleIdAsync(r.match.id); }
+        catch (e) { H.note('auto text style "' + r.match.name + '" skipped: font "' + r.match.fontName.family + ' ' + r.match.fontName.style + '" is not installed'); }
+      } else if (r.ambiguous) {
+        H.note('no text style applied for ' + label + ': ' + r.ambiguous.length + ' styles match (' + r.ambiguous.join(', ') + '), name one with textStyle=');
+      } else if (r.nearest) {
+        H.note('no text style for ' + label + ', nearest is "' + r.nearest.name + '" (' + r.nearest.fontSize + 'px ' + r.nearest.fontName.style + ')');
+      }
+    } catch (e) {}
+  };
+
   const compCache = new Map();
   // The helpers live on globalThis for the whole Figma session, so anything
   // cached here can point at a node or variable the user has since deleted.
   // Every render / eval starts with a reset (see RESET_NOTES).
-  H.resetCaches = () => { compCache.clear(); varIndex = null; pagesLoaded = false; fontList = null; };
+  H.resetCaches = () => { textStyleCache = null; compCache.clear(); varIndex = null; pagesLoaded = false; fontList = null; };
   // A component or component set by name (whole document) or by node id.
   H.component = async (ref) => {
     if (/^I?\\d+:\\d+/.test(ref)) {

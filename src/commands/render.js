@@ -218,6 +218,7 @@ program
   .option('--keep-wrapper', 'Keep an outer flex Frame as a parent — disables the auto-split that turns "N items in a flex wrapper" into independent canvas items')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of the result (saves PNG, prints JSON) — replaces a separate `figma-cli verify` roundtrip')
+  .option('--auto-style', 'Give a <Text> without textStyle= the file text style that matches its size and weight (only when exactly one does)')
   .action(async (rawJsx, options) => {
     if (options.file) rawJsx = readFileSync(options.file, 'utf8');
     if (!rawJsx) { console.log(chalk.red('✗ Pass the JSX as an argument or with --file <path>')); return; }
@@ -241,6 +242,7 @@ program
         ];
         if (options.asComponent) args.push('--as-component');
         if (options.collection) args.push('--collection', options.collection);
+        if (options.autoStyle) args.push('--auto-style');
         await program.parseAsync(args, { from: 'user' });
         return;
       }
@@ -289,6 +291,7 @@ program
       const { FigmaClient } = await import('../figma-client.js');
       const client = new FigmaClient();
       if (options.collection) client.setCollection(options.collection);
+      if (options.autoStyle) client.setAutoTextStyle(true);
       const code = await client.parseJSX(jsx, {
         x: posX,
         y: options.y !== undefined ? posY : undefined,
@@ -341,6 +344,7 @@ program
   .option('--variant-set <name>', 'Combine the rendered frames into ONE component set. Name each frame by its variant, e.g. name="size=small, state=hover"')
   .option('-c, --collection <name>', 'Pin var:<name> resolution to this variable collection (case-insensitive, fuzzy match). Per-attr `var:collection:name` overrides this.')
   .option('--verify', 'After rendering, return a screenshot of each result (saves PNGs, prints JSON)')
+  .option('--auto-style', 'Give a <Text> without textStyle= the file text style that matches its size and weight (only when exactly one does)')
   .action(async (jsxArrayStr, options) => {
     if (options.file) jsxArrayStr = readFileSync(options.file, 'utf8');
     if (!jsxArrayStr) { console.log(chalk.red('✗ Pass a JSON array of JSX strings or --file <path>')); return; }
@@ -362,6 +366,7 @@ program
         gap,
         vertical,
         collection: options.collection || undefined,
+        autoStyle: options.autoStyle ? true : undefined,
       });
       // Unwrap the wrapped form returned when there are warnings to report.
       let unresolvedVars = null;

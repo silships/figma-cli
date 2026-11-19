@@ -418,7 +418,7 @@ async function handleRequest(req, res) {
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const { action, code, jsx, jsxArray, gap, vertical, collection, timeoutMs } = payload;
+          const { action, code, jsx, jsxArray, gap, vertical, collection, timeoutMs, autoStyle } = payload;
           let result;
 
           const execWithTimeout = async (fn, timeoutMs = 30000) => {
@@ -449,6 +449,7 @@ async function handleRequest(req, res) {
               const ClientClass = await getFigmaClient();
               const batchParser = new ClientClass();
               if (collection) batchParser.setCollection(collection);
+              if (autoStyle === true) batchParser.setAutoTextStyle(true);
               const batchCode = await batchParser.parseJSXBatch(jsxArray, {
                 gap: gap || 40,
                 vertical: vertical || false

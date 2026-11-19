@@ -21,6 +21,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 | "build it on page X" | `figma-cli render --page "X" '<Frame>…'` (creates the page when missing) |
 | "make a component set with these variants" | `figma-cli render-batch '["<Frame name=\"size=small, state=hover\" …>", …]' --variant-set Button` |
 | "use text style / effect style X" | `<Text textStyle="Body/Medium">`, `<Frame effectStyle="shadow/small">` |
+| "which text styles does this file have" | `figma-cli styles` (names work in `textStyle=`, the tail after the last "/" too) |
+| "bind rendered text to the file's text styles" | `figma-cli render --auto-style '…'` (applies a style only when exactly one matches size + weight) |
 | "what component already exists for X" | `figma-cli spec X` (shows the reuse handle) |
 | "list variables" | `figma-cli var list` |
 | "find nodes named X" | `figma-cli find "X"` |
