@@ -237,7 +237,7 @@ node src/index.js screenshot-url "https://example.com" --full
 ```bash
 node src/index.js create image "https://example.com/photo.png"
 node src/index.js screenshot-url "https://example.com"
-node src/index.js remove-bg                    # Remove background (needs API key)
+node src/index.js remove-bg                    # Remove background (needs a Leonardo.Ai API key)
 ```
 
 ## FigJam

@@ -52,7 +52,7 @@ Security review of figma-cli is mostly a question of what the three connection m
 
 ### Data and credentials
 
-- No telemetry, no analytics, no phone-home. Outbound requests happen only where a command needs them: `<Icon>` fetches the SVG from the Iconify API, `recreate-url` / `screenshot-url` / Storybook import load the URL you passed, image props load the image URL you passed, and the background-removal command uploads the exported image to remove.bg with your own API key. Nothing leaves the machine on its own.
+- No telemetry, no analytics, no phone-home. Outbound requests happen only where a command needs them: `<Icon>` fetches the SVG from the Iconify API, `recreate-url` / `screenshot-url` / Storybook import load the URL you passed, image props load the image URL you passed, and the background-removal command uploads the exported image to Leonardo.Ai (which took over the remove.bg API) with your own API key. Nothing leaves the machine on its own.
 - **No Figma API key is involved.** The tool never asks for one and never sees your Figma token.
 - Credentials for optional plugins (for example a voice API key) go into the macOS Keychain, or on Linux into `~/.config/figma-cli/credentials` with mode 600.
 

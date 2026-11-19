@@ -23,7 +23,7 @@ const configCmd = program
 
 configCmd
   .command('set <key> <value>')
-  .description('Set a config value (e.g., removebgApiKey)')
+  .description('Set a config value (e.g., leonardoApiKey)')
   .action((key, value) => {
     const config = loadConfig();
     config[key] = value;

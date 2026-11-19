@@ -12,6 +12,7 @@ import {
   figmaUse,
   loadConfig
 } from '../lib/cli-core.js';
+import { removeBackground } from '../lib/remove-bg.js';
 
 // ============ SCREENSHOT URL ============
 
@@ -556,28 +557,34 @@ ${[...fonts].map(f => {
 program
   .command('remove-bg [nodeId]')
   .alias('removebg')
-  .description('Remove background from selected image (uses remove.bg API)')
-  .option('--api-key <key>', 'Remove.bg API key')
+  .description('Remove background from selected image (uses the Leonardo.Ai API, formerly remove.bg)')
+  .option('--api-key <key>', 'Leonardo.Ai API key')
   .action(async (nodeId, options) => {
     await checkConnection();
 
     // Get API key from option, env var, or config
     const config = loadConfig();
-    const apiKey = options.apiKey || process.env.REMOVEBG_API_KEY || config.removebgApiKey;
+    const apiKey = options.apiKey || process.env.LEONARDO_API_KEY || config.leonardoApiKey;
 
     if (!apiKey) {
-      console.log(chalk.red('✗ Remove.bg API key required\n'));
-      console.log(chalk.white.bold('How to get your API key (free, 50 images/month):\n'));
-      console.log(chalk.gray('  1. Go to ') + chalk.cyan('https://www.remove.bg/api'));
-      console.log(chalk.gray('  2. Click "Get API Key" and sign up'));
-      console.log(chalk.gray('  3. Copy your API key from the dashboard\n'));
+      console.log(chalk.red('✗ Leonardo.Ai API key required\n'));
+      if (process.env.REMOVEBG_API_KEY || config.removebgApiKey) {
+        const where = process.env.REMOVEBG_API_KEY ? 'REMOVEBG_API_KEY' : 'config removebgApiKey';
+        console.log(chalk.yellow(`  Found an old remove.bg key (${where}). It is not used anymore.`));
+      }
+      console.log(chalk.gray('  remove.bg moved its API to Leonardo.Ai, so remove.bg keys no longer work.\n'));
+      process.exitCode = 1;
+      console.log(chalk.white.bold('How to get your API key:\n'));
+      console.log(chalk.gray('  1. Go to ') + chalk.cyan('https://app.leonardo.ai/api-access'));
+      console.log(chalk.gray('  2. Sign in and create an API key'));
+      console.log(chalk.gray('  3. Copy the key\n'));
       console.log(chalk.white.bold('Then use one of these methods:\n'));
       console.log(chalk.cyan('  Option A: ') + chalk.gray('Save permanently'));
-      console.log(chalk.white('    node src/index.js config set removebgApiKey YOUR_KEY\n'));
+      console.log(chalk.white('    node src/index.js config set leonardoApiKey YOUR_KEY\n'));
       console.log(chalk.cyan('  Option B: ') + chalk.gray('Use once'));
       console.log(chalk.white('    node src/index.js remove-bg --api-key YOUR_KEY\n'));
       console.log(chalk.cyan('  Option C: ') + chalk.gray('Environment variable'));
-      console.log(chalk.white('    export REMOVEBG_API_KEY=YOUR_KEY'));
+      console.log(chalk.white('    export LEONARDO_API_KEY=YOUR_KEY'));
       return;
     }
 
@@ -595,39 +602,13 @@ program
         throw new Error('Export failed. Select an image or frame first.');
       }
 
-      spinner.text = 'Removing background via remove.bg...';
+      spinner.text = 'Removing background via Leonardo.Ai...';
 
-      // Read image and send to Remove.bg API
+      // Read image and send it to Leonardo.Ai
       const imageBuffer = readFileSync(tempInput);
-      const base64Image = imageBuffer.toString('base64');
-
-      const response = await fetch('https://api.remove.bg/v1.0/removebg', {
-        method: 'POST',
-        headers: {
-          'X-Api-Key': apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          image_file_b64: base64Image,
-          size: 'auto',
-          format: 'png',
-        }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        const errorMsg = error.errors?.[0]?.title || 'API request failed';
-        if (response.status === 402) {
-          throw new Error('API credits exhausted. Get more at remove.bg/api');
-        }
-        if (response.status === 403) {
-          throw new Error('Invalid API key. Check your key at remove.bg/api');
-        }
-        throw new Error(errorMsg);
-      }
+      const resultBuffer = await removeBackground(imageBuffer, apiKey);
 
       // Get result as base64
-      const resultBuffer = Buffer.from(await response.arrayBuffer());
       const resultBase64 = resultBuffer.toString('base64');
       const dataUrl = 'data:image/png;base64,' + resultBase64;
 
