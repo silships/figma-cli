@@ -889,7 +889,8 @@ async function checkConnection() {
   if (!connected) {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
+    console.log(chalk.cyan('  figma-ds-cli connect --browser') + chalk.gray(' (Browser Mode, recommended)'));
+    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode, Figma Desktop app)'));
     console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }
@@ -917,7 +918,8 @@ function checkConnectionSync() {
   } catch {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode)'));
+    console.log(chalk.cyan('  figma-ds-cli connect --browser') + chalk.gray(' (Browser Mode, recommended)'));
+    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode, Figma Desktop app)'));
     console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }

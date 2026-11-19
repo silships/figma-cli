@@ -12,11 +12,12 @@ If the `figma-cli` command is not found, the tool isn't installed yet — see
 **Installation** at the bottom. Never show raw terminal commands to the user;
 run them silently and give friendly feedback.
 
-## Connect (pick one mode)
-- `figma-cli connect` — **Yolo** (default): patches Figma Desktop once, fully automatic.
-- `figma-cli connect --browser` — **Browser**: drives Figma in a Chromium browser via
-  a local connection; **never modifies the Figma app**. Use when patching the desktop
-  app is undesirable (compliance / locked-down machine / no "App Management" permission).
+## Connect (pick one mode, offer them in this order)
+- `figma-cli connect --browser` — **Browser (recommended)**: drives Figma in a Chromium
+  browser via a local connection; **never modifies the Figma app**. Tell the designer
+  BEFORE running it: "A Chrome window opens in a moment. Sign in to Figma there and open
+  a design file. I connect by myself as soon as it is open."
+- `figma-cli connect` — **Yolo**: for the Figma Desktop app, patches it once, fully automatic.
 - `figma-cli connect --safe` — **Safe**: official plugin (Plugins → Development → FigCli).
 
 ## Golden rules
@@ -56,6 +57,7 @@ Don't read the structure markdown by hand. Use:
 
 ## Handy commands
 ```
+figma-cli connect --browser            # connect to Figma in Chrome (recommended)
 figma-cli connect                      # connect to Figma Desktop (yolo)
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row

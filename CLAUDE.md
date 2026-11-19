@@ -412,9 +412,9 @@ figma-cli set fill "var:primary"
 
 ## Connection Modes
 
-**Yolo Mode (Recommended):** `figma-cli connect` - Patches Figma Desktop once, fully automatic.
+**Browser Mode (Recommended, no app modification):** `figma-cli connect --browser` - Drives Figma running in a **normal Chromium browser** via CDP; the local Figma app is **never patched or modified**. It launches a Chrome/Edge/Brave/Chromium window with remote debugging enabled (dedicated persistent profile, so your Figma login and everyday browser profile are untouched), waits for you to open a design file there, then runs the same fast CDP path as Yolo. Use this when patching the desktop app is undesirable (compliance, no "App Management" permission, locked-down machine). Note: expects Figma Desktop not to be occupying the debug port (9222) at the same time.
 
-**Browser Mode (no app modification):** `figma-cli connect --browser` - Drives Figma running in a **normal Chromium browser** via CDP; the local Figma app is **never patched or modified**. It launches a Chrome/Edge/Brave/Chromium window with remote debugging enabled (dedicated persistent profile, so your Figma login and everyday browser profile are untouched), waits for you to open a design file there, then runs the same fast CDP path as Yolo. Use this when patching the desktop app is undesirable (compliance, no "App Management" permission, locked-down machine). Note: expects Figma Desktop not to be occupying the debug port (9222) at the same time.
+**Yolo Mode (Figma Desktop app):** `figma-cli connect` - Patches Figma Desktop once, fully automatic.
 
 **Safe Mode:** `figma-cli connect --safe` - Plugin-based, no Figma modification. Then: Plugins > Development > FigCli.
 
@@ -757,8 +757,8 @@ mismatch instead of letting Figma invent bogus "Property 1" axes.
 ## Onboarding
 
 1. Run `npm install` silently
-2. Ask connection mode (Yolo, Browser, or Safe). Pick **Browser** if the user
-   doesn't want the local Figma app modified/patched.
+2. Offer the connection modes in this order: **Browser (recommended)**, Yolo
+   (Figma Desktop app), Safe. Without a preference use Browser.
 3. Run `figma-cli connect` (or `--browser`, or `--safe`)
    - **Browser mode: tell the designer BEFORE running it.** The command waits
      silently until a design file is open and the designer watches the browser,

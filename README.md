@@ -2,7 +2,7 @@
 
 <p align="center">
   <a href="https://www.intodesignsystems.com/"><img src="https://img.shields.io/badge/Into_Design_Systems-intodesignsystems.com-ff6b35" alt="Into Design Systems"></a>
-  <img src="https://img.shields.io/badge/Figma-Desktop-purple" alt="Figma Desktop">
+  <img src="https://img.shields.io/badge/Figma-Browser_or_Desktop-purple" alt="Figma in the browser or Figma Desktop">
   <img src="https://img.shields.io/badge/No_API_Key-Required-green" alt="No API Key">
   <img src="https://img.shields.io/badge/No_MCP-Required-green" alt="No MCP Required">
   <img src="https://img.shields.io/badge/No_Rate_Limits-✓-green" alt="No Rate Limits">
@@ -13,20 +13,20 @@
 
 <p align="center">
   <b>Talk in plain English. Watch Figma build.</b><br>
-  You describe what you want, an AI assistant builds it live in your Figma Desktop.<br>
+  You describe what you want, an AI assistant builds it live in your Figma.<br>
   No API key. No copy-paste. No plugin to babysit. No code to write.
 </p>
 
 <p align="center">
   Built by <b>Sil Bormüller</b>: Founder of <a href="https://www.intodesignsystems.com/">Into Design Systems</a><br>
-  Join my AI conference: <a href="https://www.intodesignsystems.com/">AI Design Systems Conference 2027</a> on March 10 and 11 2027 online
+  Join my AI conference: <a href="https://www.intodesignsystems.com/">AI Design Conference 2027</a> on March 10 and 11 2027 online
 </p>
 
 ---
 
 ## What is this?
 
-figma-cli lets an **AI assistant build directly in your Figma Desktop**, while you talk to it in normal language.
+figma-cli lets an **AI assistant build directly in your Figma**, while you talk to it in normal language.
 
 You don't run commands or write code. You open **Claude** in this project and say things like:
 
@@ -48,7 +48,7 @@ You don't install this by hand. You use an **AI coding assistant** , **Claude Co
 > **Using Cursor?** Jump to [Using Cursor](#using-cursor) for the one-line setup. The steps below are for Claude Code; everything the CLI does is identical in both.
 
 ### 1. Have these ready
-- **Figma Desktop** , installed and open ([download](https://www.figma.com/downloads/)).
+- **Google Chrome** ([download](https://www.google.com/chrome/)) and a **Figma account**. Edge, Brave and Chromium work too. figma-cli opens Figma in its own Chrome window and never touches the Figma app
 - **Claude Code** , Anthropic's AI assistant for your computer. [Install it here](https://docs.claude.com/en/docs/claude-code) (one command, takes a minute). *(Or use Cursor , see below.)*
 
 ### 2. Get this project onto your computer
@@ -61,9 +61,11 @@ Don't know git? No problem. Open Claude Code anywhere and paste:
 ### 3. Let Claude install and connect it
 Open Claude Code **inside the project folder** and say:
 
-> "Set up figma-cli and connect it to my Figma."
+> "Set up figma-cli and connect it to Figma in the browser."
 
-Claude reads the project's instructions, installs what's needed, and connects to your open Figma Desktop. You watch , you don't type commands.
+A Chrome window opens. Sign in to Figma there once and open a design file. Claude connects by itself as soon as the file is open. You watch and don't type commands.
+
+Prefer the Figma Desktop app? See [How it connects to Figma](#how-it-connects-to-figma-browser-yolo-or-safe-mode).
 
 When it says it's connected, you're done. ✅
 
@@ -90,25 +92,25 @@ a two-line install:
 That installs a skill that teaches Claude Code how to drive figma-cli (connect
 modes, the render/JSX rules, tokens, verify, a11y). The **CLI itself still needs
 Node ≥ 18 and its dependencies** , clone this repo and run `npm install` once (or
-ask Claude to), then open Figma Desktop and say *"connect to Figma"*. The plugin
+ask Claude to), then say *"connect to Figma in the browser"*. The plugin
 supplies the know-how; the local CLI does the work.
 
 ---
 
 ## Using Cursor
 
-Prefer **Cursor**? It works exactly the same , the CLI controls Figma Desktop, not your editor, so nothing about it is Claude-only. Most people use Claude Code, but if Cursor is your tool, here's the whole setup.
+Prefer **Cursor**? It works exactly the same , the CLI controls Figma, not your editor, so nothing about it is Claude-only. Most people use Claude Code, but if Cursor is your tool, here's the whole setup.
 
 ### 1. Have these ready
-- **Figma Desktop** , installed and open ([download](https://www.figma.com/downloads/)).
+- **Google Chrome** ([download](https://www.google.com/chrome/)) and a **Figma account**. Edge, Brave and Chromium work too
 - **Cursor** , [download here](https://cursor.com).
 
 ### 2. Tell Cursor to install it , one line
 Open Cursor in any folder, open the chat (the Agent), and paste:
 
-> **"Install github.com/silships/figma-cli and connect it to my Figma."**
+> **"Install github.com/silships/figma-cli and connect it to Figma in the browser."**
 
-Cursor downloads the project, installs it, sets up its own rules so it knows how to drive it, and connects to your open Figma Desktop. You watch , you don't type commands.
+Cursor downloads the project, installs it, sets up its own rules so it knows how to drive it, and opens Figma in a Chrome window. Sign in there once and open a design file. Cursor connects by itself as soon as the file is open.
 
 > Under the hood Cursor runs one extra command for itself , `figma-cli init-agent` , which drops a small `.cursor/rules/figma-cli.mdc` into your project. That's the file that teaches Cursor's Agent the rules (use real variables, wrap text properly, build N items as N components, etc.). You never edit it.
 
@@ -125,21 +127,23 @@ Cursor builds it in Figma instantly.
 
 ---
 
-## How it connects to Figma: Yolo, Browser, or Safe mode
+## How it connects to Figma: Browser, Yolo, or Safe mode
 
 figma-cli talks to Figma in one of three ways. Claude picks one during setup , here's what they mean, so you know what's happening:
 
-### ⚡ Yolo Mode , the default, recommended
+### 🌐 Browser Mode , recommended, no Figma app needed
+- Runs Figma in a **normal Chromium browser** (Chrome / Edge / Brave / Chromium) and drives it over the same fast direct connection , **the Figma Desktop app is never patched or modified.**
+- Claude opens a browser window with remote debugging on, in its **own dedicated profile** (your Figma login and everyday browser stay untouched); you open your file there and keep working.
+- Works on locked-down company machines too because nothing gets patched and macOS asks for no extra permission. Just as fast as Yolo, and still fully local (no API key, no cloud).
+- Claude tells you before it starts: a Chrome window opens, you sign in once and open a design file. A blue banner in the Figma window says the same while it waits
+- Tell Claude *"connect to Figma in the browser"*.
+
+### ⚡ Yolo Mode , for the Figma Desktop app
 - **Fully automatic.** Claude sets it up, you do nothing.
 - It applies a **small, reversible patch** to the Figma Desktop app so the CLI can talk to it directly. That's what makes it fast and completely hands-off , no plugin to keep open, no clicking.
 - "Yolo" sounds scary, but it's **safe and undoable** , Claude can un-patch it anytime, and nothing ever leaves your machine.
-- Just tell Claude *"connect to Figma"* and you're done.
-
-### 🌐 Browser Mode , same speed, without touching the Figma app
-- Runs Figma in a **normal Chromium browser** (Chrome / Edge / Brave / Chromium) and drives it over the same fast direct connection , **the Figma Desktop app is never patched or modified.**
-- Claude opens a browser window with remote debugging on, in its **own dedicated profile** (your Figma login and everyday browser stay untouched); you open your file there and keep working.
-- Best when you can't or don't want to modify the desktop app , company policy, a locked-down machine, or macOS won't grant the "App Management" permission the patch needs. Just as fast as Yolo, and still fully local (no API key, no cloud).
-- Tell Claude *"connect to Figma in browser mode"*.
+- Needs **Figma Desktop** installed and open ([download](https://www.figma.com/downloads/))
+- Tell Claude *"connect to the Figma Desktop app"*.
 
 ### 🛡️ Safe Mode , no changes to the Figma app
 - **Doesn't touch the Figma app at all.** Instead it uses a tiny built-in Figma plugin.
@@ -147,7 +151,7 @@ figma-cli talks to Figma in one of three ways. Claude picks one during setup , h
 - A little more manual (you start the plugin), but **zero modifications** to Figma itself , good if you, or your company's IT policy, don't want the app patched.
 - Tell Claude *"connect to Figma in safe mode"*.
 
-**All three do exactly the same things.** Unsure? Use Yolo. Want nothing changed on your Figma app but still want the fast direct path? Use **Browser**. Prefer the official plugin route? Use Safe. You can switch anytime , just ask Claude.
+**All three do exactly the same things.** Unsure? Use **Browser**. Working in the Figma Desktop app anyway? Use Yolo. Prefer the official plugin route? Use Safe. You can switch anytime , just ask Claude.
 
 ### Custom debug port (advanced)
 Yolo and Browser mode both talk to Figma over CDP on port **9222** by default. If something else on your machine already uses that port (another Chrome with remote debugging, a browser automation tool), point figma-cli at a different one:
@@ -378,7 +382,7 @@ Prefer to keep everything on your machine? figma-cli also works with **local LLM
 Everything above is powered by a CLI that the AI calls for you. If you want to use it directly, script it, or see every command:
 
 - **[REFERENCE.md](REFERENCE.md)** , full command reference (tokens, render/JSX, components, gradients, a11y, export, the offline Figma API spec, and more).
-- Three connection modes: **Yolo** (direct, patches the desktop app, recommended), **Browser** (same direct speed via a Chromium browser, never modifies the Figma app), and **Safe** (plugin-based, no patching). Claude picks the right one during setup.
+- Three connection modes: **Browser** (recommended, direct CDP via a Chromium browser, never modifies the Figma app), **Yolo** (same speed, patches the desktop app) and **Safe** (plugin-based, no patching). Claude picks the right one during setup.
 
 **Auto-layout, by example.** `npm run examples` renders a labelled gallery of the
 auto-layout patterns that are easy to get wrong , wrapping card, space-between
