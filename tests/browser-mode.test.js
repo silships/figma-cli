@@ -44,3 +44,71 @@ test('getBrowserCommand carries the debug flags for a copy-paste launch', () => 
   assert.ok(cmd.includes('--remote-allow-origins=*'));
   assert.ok(cmd.trim().endsWith('https://www.figma.com'));
 });
+
+// ---------- browser-mode helpers (last file, tab pick, login) ----------
+import { cleanFileUrl, pickFileTab, isLoginUrl, isFigmaFileUrl } from '../src/lib/browser-mode.js';
+
+test('cleanFileUrl keeps file key and name, drops node-id and query', () => {
+  assert.equal(
+    cleanFileUrl('https://www.figma.com/design/AbC123/My-File?node-id=1-2&t=xyz'),
+    'https://www.figma.com/design/AbC123/My-File'
+  );
+});
+
+test('cleanFileUrl keeps Slides files and rejects home/feed', () => {
+  assert.equal(cleanFileUrl('https://www.figma.com/slides/K/Deck?x=1'), 'https://www.figma.com/slides/K/Deck');
+  assert.equal(cleanFileUrl('https://www.figma.com/files/recents'), null);
+  assert.equal(cleanFileUrl(undefined), null);
+});
+
+test('pickFileTab prefers a design file over Slides and ignores service workers', () => {
+  const pages = [
+    { type: 'page', url: 'https://www.figma.com/files/recents' },
+    { type: 'page', url: 'https://www.figma.com/slides/K/Deck' },
+    { type: 'service_worker', url: 'https://www.figma.com/design/SW/x' },
+    { type: 'page', url: 'https://www.figma.com/design/D/File' },
+  ];
+  assert.equal(pickFileTab(pages).url, 'https://www.figma.com/design/D/File');
+});
+
+test('pickFileTab finds a Slides-only session', () => {
+  assert.equal(pickFileTab([{ type: 'page', url: 'https://www.figma.com/slides/K/Deck' }]).url,
+    'https://www.figma.com/slides/K/Deck');
+  assert.equal(pickFileTab([{ type: 'page', url: 'https://www.figma.com/files/recents' }]), null);
+});
+
+test('isLoginUrl / isFigmaFileUrl', () => {
+  assert.ok(isLoginUrl('https://www.figma.com/login?cont=x'));
+  assert.ok(!isLoginUrl('https://www.figma.com/design/D/File'));
+  assert.ok(isFigmaFileUrl('https://www.figma.com/file/D/File'));
+  assert.ok(!isFigmaFileUrl('https://www.figma.com/files/team/1'));
+});
+
+test('isLoginUrl treats the signed-out marketing home as login', () => {
+  assert.ok(isLoginUrl('https://www.figma.com/'));
+  assert.ok(!isLoginUrl('https://www.figma.com/files/team/1/recents'));
+});
+
+import { seedProfilePermissions, FIGMA_ORIGIN_PATTERN } from '../src/lib/browser-mode.js';
+import { mkdtempSync, readFileSync as rf, writeFileSync as wf, mkdirSync as md } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join as pj } from 'node:path';
+
+test('seedProfilePermissions allows figma.com local network access in a new profile', () => {
+  const dir = mkdtempSync(pj(tmpdir(), 'fcli-prof-'));
+  assert.equal(seedProfilePermissions(dir), true);
+  const prefs = JSON.parse(rf(pj(dir, 'Default', 'Preferences'), 'utf8'));
+  assert.equal(prefs.profile.content_settings.exceptions.loopback_network[FIGMA_ORIGIN_PATTERN].setting, 1);
+  assert.equal(seedProfilePermissions(dir), false); // idempotent
+});
+
+test('seedProfilePermissions keeps existing preferences', () => {
+  const dir = mkdtempSync(pj(tmpdir(), 'fcli-prof-'));
+  md(pj(dir, 'Default'), { recursive: true });
+  wf(pj(dir, 'Default', 'Preferences'), JSON.stringify({ keep: 1, profile: { name: 'x', content_settings: { exceptions: { cookies: { a: 1 } } } } }));
+  seedProfilePermissions(dir);
+  const prefs = JSON.parse(rf(pj(dir, 'Default', 'Preferences'), 'utf8'));
+  assert.equal(prefs.keep, 1);
+  assert.equal(prefs.profile.name, 'x');
+  assert.deepEqual(prefs.profile.content_settings.exceptions.cookies, { a: 1 });
+});

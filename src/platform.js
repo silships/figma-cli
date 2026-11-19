@@ -13,10 +13,14 @@ const PLATFORM = process.platform;
 export const nullDevice = PLATFORM === 'win32' ? 'NUL' : '/dev/null';
 
 // --- Port cleanup ---
+// Only the process LISTENING on the port. A bare `lsof -ti:PORT` also lists
+// every client with an open connection to it, which includes this CLI right
+// after a daemon health check, so the CLI killed itself (exit 137).
 function killPortUnix(port) {
-  const portCheck = execSync(`lsof -ti:${port} 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' });
-  if (portCheck.trim()) {
-    try { execSync(`lsof -ti:${port} | xargs kill -9 2>/dev/null || true`, { stdio: 'pipe' }); } catch {}
+  const pids = execSync(`lsof -ti tcp:${port} -sTCP:LISTEN 2>/dev/null || true`, { encoding: 'utf8', stdio: 'pipe' })
+    .split(/\s+/).filter(p => /^\d+$/.test(p) && Number(p) !== process.pid);
+  if (pids.length) {
+    try { execSync(`kill -9 ${pids.join(' ')} 2>/dev/null || true`, { stdio: 'pipe' }); } catch {}
     try { execSync('sleep 0.3', { stdio: 'pipe' }); } catch {}
   }
 }
@@ -149,6 +153,11 @@ export function browserDebugArgs(port = 9222, profileDir, url = 'https://www.fig
     `--user-data-dir=${profileDir}`,
     '--no-first-run',
     '--no-default-browser-check',
+    // figma-cli hides this window while it works. Without these Chrome
+    // throttles hidden pages and Figma never finishes loading the file.
+    '--disable-background-timer-throttling',
+    '--disable-renderer-backgrounding',
+    '--disable-backgrounding-occluded-windows',
     url
   ];
 }

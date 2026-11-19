@@ -638,7 +638,7 @@ shadcn
   .option('-c, --count <n>', 'Add this many copies of each named component (e.g. --count 3 for 3 cards)', '1')
   .option('--no-component', 'Leave the rendered nodes as frames instead of converting them to real Figma components')
   .action(async (names, options) => {
-    checkConnection();
+    await checkConnection();
     const count = Math.max(1, parseInt(options.count) || 1);
 
     let items;

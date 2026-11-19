@@ -25,8 +25,8 @@ exp
   .option('-o, --output <file>', 'Output file', 'screenshot.png')
   .option('-s, --scale <number>', 'Export scale (1-4)', '2')
   .option('-f, --format <format>', 'Format: png, jpg, svg, pdf', 'png')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
     const code = `(async () => {
@@ -62,8 +62,8 @@ exp
   .option('-o, --output <file>', 'Output file', 'node-export.png')
   .option('-s, --scale <number>', 'Export scale', '2')
   .option('-f, --format <format>', 'Format: png, svg, pdf, jpg', 'png')
-  .action((nodeId, options) => {
-    checkConnection();
+  .action(async (nodeId, options) => {
+    await checkConnection();
     const format = options.format.toUpperCase();
     const scale = parseFloat(options.scale);
     const code = `(async () => {
@@ -95,8 +95,8 @@ return {
 exp
   .command('css')
   .description('Export variables as CSS custom properties')
-  .action(() => {
-    checkConnection();
+  .action(async () => {
+    await checkConnection();
     const code = `(async () => {
 const vars = await figma.variables.getLocalVariablesAsync();
 const css = vars.map(v => {
@@ -116,8 +116,8 @@ return ':root {\\n' + css + '\\n}';
 exp
   .command('tailwind')
   .description('Export color variables as Tailwind config')
-  .action(() => {
-    checkConnection();
+  .action(async () => {
+    await checkConnection();
     const code = `(async () => {
 const vars = await figma.variables.getLocalVariablesAsync();
 const colorVars = vars.filter(v => v.resolvedType === 'COLOR');
@@ -142,8 +142,8 @@ return JSON.stringify({ theme: { extend: { colors } } }, null, 2);
 exp
   .command('dtcg [output]')
   .description('Export variables as W3C Design Tokens (DTCG) JSON — the export side of token sync (import side: figma-cli import tokens.json)')
-  .action((output) => {
-    checkConnection();
+  .action(async (output) => {
+    await checkConnection();
     const code = `(async () => {
 const vars = await figma.variables.getLocalVariablesAsync();
 const byId = {};
@@ -193,8 +193,8 @@ program
   .option('--save [path]', 'Custom PNG path (default: /tmp/figma-verify-{id}.png — save is the DEFAULT)')
   .option('--base64', 'Dump the base64 PNG to stdout instead of saving (token-heavy — opt-in only)')
   .option('--measure', 'Also return real (unscaled) node + child dimensions so size bugs are caught by measurement, not just the screenshot')
-  .action((nodeId, options) => {
-    checkConnection();
+  .action(async (nodeId, options) => {
+    await checkConnection();
     const scale = parseFloat(options.scale);
     const maxDim = parseInt(options.max);
     const withMeasure = !!options.measure;
@@ -332,7 +332,7 @@ program
   .description('Execute JavaScript in Figma plugin context')
   .option('-f, --file <path>', 'Run code from file instead of argument')
   .action(async (code, options) => {
-    checkConnection();
+    await checkConnection();
     let jsCode = code ? unescapeShell(code) : code;
 
     // If --file option provided, read code from file
@@ -394,7 +394,7 @@ program
   .command('run <file>')
   .description('Run JavaScript file in Figma (alias for eval --file)')
   .action(async (file) => {
-    checkConnection();
+    await checkConnection();
     if (!existsSync(file)) {
       console.log(chalk.red('✗ File not found: ' + file));
       return;
@@ -421,8 +421,8 @@ program
 program
   .command('raw <command...>')
   .description('Run raw figma-use command')
-  .action((command) => {
-    checkConnection();
+  .action(async (command) => {
+    await checkConnection();
     figmaUse(command.join(' '));
   });
 

@@ -31,7 +31,7 @@ create
   .option('--smart', 'Auto-position to avoid overlaps (default if no -x)')
   .option('-g, --gap <n>', 'Gap for smart positioning', '100')
   .action(async (name, options) => {
-    checkConnection();
+    await checkConnection();
     const useSmartPos = options.smart || options.x === undefined;
     const usesVars = options.fill && isVarRef(options.fill);
 
@@ -65,7 +65,7 @@ create
   .option('-y <n>', 'Y position', '0')
   .option('--spacing <n>', 'Gap from other elements', '100')
   .action(async (name, options) => {
-    checkConnection();
+    await checkConnection();
     const spinner = ora(`Fetching icon ${name}...`).start();
 
     try {
@@ -154,7 +154,7 @@ create
   .option('-n, --name <name>', 'Node name', 'Image')
   .option('--spacing <n>', 'Gap from other elements', '100')
   .action(async (url, options) => {
-    checkConnection();
+    await checkConnection();
     const spinner = ora('Loading image...').start();
 
     const code = `

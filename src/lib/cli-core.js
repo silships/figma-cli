@@ -397,6 +397,18 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
  * Title of the file the running daemon is bound to (null when unknown).
  * Cheap: one /health call, same endpoint the health check already uses.
  */
+function daemonHealth() {
+  try {
+    const token = getDaemonToken();
+    const tokenHeader = token ? ` -H "X-Daemon-Token: ${token}"` : '';
+    return JSON.parse(execSync(`curl -s -m 2${tokenHeader} http://localhost:${DAEMON_PORT}/health`, {
+      encoding: 'utf8', stdio: 'pipe', timeout: 3000,
+    }));
+  } catch {
+    return null;
+  }
+}
+
 function daemonBinding() {
   try {
     const token = getDaemonToken();
@@ -428,14 +440,45 @@ function daemonPinMismatch() {
   return binding.known && (binding.pin || '').toLowerCase() !== want.toLowerCase();
 }
 
+// Browser Mode: when the debug browser was closed (or the file tab is gone),
+// reopen the last used file before any command talks to Figma. Remembers the
+// file the user has open now, so the next start lands on it.
+let _browserChecked = false;
+async function ensureBrowserModeReady() {
+  if (_browserChecked) return;
+  _browserChecked = true;
+  const config = loadConfig();
+  if (!config.browser || config.patched) return;
+  const { ensureBrowserReady, cleanFileUrl } = await import('./browser-mode.js');
+  const result = await ensureBrowserReady({
+    port: getCdpPort(),
+    profileDir: join(CONFIG_DIR, 'chrome-profile'),
+    lastUrl: config.browserLastUrl,
+    waitMs: 30000,
+    onLaunch: () => process.stderr.write(chalk.gray('Opening your Figma file in the browser...\n')),
+  });
+  if (result.ready) {
+    const url = cleanFileUrl(result.url);
+    if (url && url !== config.browserLastUrl) saveConfig({ ...loadConfig(), browserLastUrl: url });
+    // A relaunched browser or a clicked desktop-app handoff replaces the page,
+    // so a running daemon holds a dead CDP socket: restart it. Same when the
+    // daemon reports it lost its file.
+    const h = daemonHealth();
+    if (result.launched || result.handedOff || (h && h.file && h.cdp === false)) stopDaemon();
+  } else if (result.needsLogin) {
+    process.stderr.write(chalk.yellow('Sign in to Figma in the browser window, then run the command again\n'));
+  }
+}
+
 async function ensureDaemonRunning(maxWaitMs = 5000) {
+  await ensureBrowserModeReady();
   const running = isDaemonRunning(false, true);
   const mismatched = running && (daemonPinMismatch() || daemonCodeMismatch());
   if (running && !mismatched) return true;
   if (mismatched) {
     // Rebind: the daemon holds ONE CDP connection, fixed at startup.
     stopDaemon();
-  } else if (!existsSync(DAEMON_PID_FILE) && !isFigmaPatched()) {
+  } else if (!existsSync(DAEMON_PID_FILE) && !isFigmaPatched() && !loadConfig().browser) {
     // Guard: only resurrect a daemon the user actually set up — either a PID file
     // is present (idle-shutdown leaves it) or Figma is patched for Yolo Mode (so
     // the daemon is the intended fast path even after an explicit stop).

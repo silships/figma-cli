@@ -25,7 +25,7 @@ program
   .option('-n, --name <name>', 'Node name', 'Screenshot')
   .option('--scale <n>', 'Scale factor (1 or 2 for retina)', '2')
   .action(async (url, options) => {
-    checkConnection();
+    await checkConnection();
 
     const spinner = ora('Taking screenshot of ' + url + '...').start();
 
@@ -207,7 +207,7 @@ program
   .option('-h, --height <n>', 'Viewport height', '900')
   .option('--name <name>', 'Frame name', 'Recreated Page')
   .action(async (url, options) => {
-    checkConnection();
+    await checkConnection();
 
     const spinner = ora('Analyzing ' + url + ' with Playwright...').start();
 
@@ -559,7 +559,7 @@ program
   .description('Remove background from selected image (uses remove.bg API)')
   .option('--api-key <key>', 'Remove.bg API key')
   .action(async (nodeId, options) => {
-    checkConnection();
+    await checkConnection();
 
     // Get API key from option, env var, or config
     const config = loadConfig();

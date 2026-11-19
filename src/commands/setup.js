@@ -8,7 +8,7 @@ import { join, basename } from 'path';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getCdpPort } from '../figma-patch.js';
-import { detectBrowser, startBrowserApp, getBrowserCommand } from '../platform.js';
+import { ensureBrowserReady, cleanFileUrl, fontAgentStatus, installFontAgent, FONT_AGENT_INSTALLERS, hasProfile } from '../lib/browser-mode.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
@@ -514,90 +514,89 @@ program
 
 // ============ BROWSER MODE ============
 
-// Probe the CDP endpoint the browser exposes on the debug port.
-// Returns whether the endpoint is up and whether a Figma design/file tab
-// (not just the home/feed) is open — the same target figma-client.js drives.
-async function probeBrowserCdp(port) {
-  try {
-    const res = await fetch(`http://localhost:${port}/json`);
-    const pages = await res.json();
-    return {
-      up: true,
-      designTab: pages.some(p => p.url && /figma\.com\/(design|file)\//.test(p.url)),
-      figmaTab: pages.some(p => p.url && p.url.includes('figma.com'))
-    };
-  } catch {
-    return { up: false, designTab: false, figmaTab: false };
-  }
-}
-
 // Browser Mode connect flow. Unlike Yolo Mode this never patches or launches
-// Figma Desktop: it launches (or reuses) a Chromium browser with remote
-// debugging, waits for a Figma design file to be open there, then starts the
-// daemon in pure-CDP mode pointed at that browser tab.
+// Figma Desktop: it opens a Chromium browser with remote debugging and its own
+// persistent profile (the Figma login survives closing the window), reopens
+// the last used file, makes sure local fonts work, then starts the daemon.
 async function connectBrowser(config) {
-  console.log(chalk.hex('#4ECDC4')('  🌐 Browser Mode ') + chalk.gray('(CDP to your browser — the Figma app is never modified)\n'));
+  console.log(chalk.hex('#4ECDC4')('  🌐 Browser Mode ') + chalk.gray('(Figma in your browser, the Figma app is never modified)\n'));
 
   const port = getCdpPort();
   const profileDir = join(CONFIG_DIR, 'chrome-profile');
+  const firstRun = !hasProfile(profileDir);
 
-  let state = await probeBrowserCdp(port);
+  const spinner = ora(config.browserLastUrl ? 'Opening your last Figma file...' : 'Opening Figma in the browser...').start();
+  let result = await ensureBrowserReady({
+    port, profileDir, lastUrl: config.browserLastUrl, waitMs: 20000,
+    onLaunch: (b) => { spinner.text = `Opening Figma in ${b.name}...`; },
+  });
 
-  if (!state.up) {
-    // No debug endpoint yet — launch a browser for the user (best effort).
-    const browser = detectBrowser();
-    const spinner = ora('Launching browser with remote debugging...').start();
-    if (browser) {
-      try {
-        startBrowserApp(browser.path, port, profileDir);
-        spinner.succeed(`Launched ${browser.name} with a dedicated debug profile`);
-      } catch (e) {
-        spinner.fail('Could not launch a browser automatically');
-      }
-    } else {
-      spinner.warn('No Chromium-based browser found automatically');
-    }
-    console.log(chalk.gray('\n  If a browser window did not open, run this yourself:\n'));
-    console.log('  ' + chalk.cyan(getBrowserCommand(port, profileDir)) + '\n');
-    console.log(chalk.white('  Then sign in to Figma and open your design file in that window.\n'));
-  } else if (!state.designTab) {
-    // Endpoint is live but no design file is open yet.
-    console.log(chalk.white('  Browser debug port is live. ') + chalk.yellow('Open your Figma design file') + chalk.white(' in that browser.\n'));
-  }
-
-  // Wait for a design/file tab to appear.
-  const spinner = ora('Waiting for a Figma design file...').start();
-  let connected = state.designTab;
-  const MAX_WAIT_S = 90;
-  for (let i = 0; i < MAX_WAIT_S && !connected; i++) {
-    await new Promise(r => setTimeout(r, 1000));
-    const s = await probeBrowserCdp(port);
-    if (s.designTab) { connected = true; break; }
-    if (i === Math.floor(MAX_WAIT_S / 2)) {
-      spinner.text = `Waiting for a Figma design file (${MAX_WAIT_S - i}s left)…`;
-    }
-  }
-
-  if (!connected) {
-    spinner.warn('No Figma design file detected yet.');
-    console.log(chalk.gray('\n  Open a design file in the debug browser, then run ') + chalk.cyan('figma-cli connect --browser') + chalk.gray(' again.\n'));
+  if (result.noBrowser) {
+    spinner.fail('Browser Mode needs Chrome, Edge, Brave or Chromium (Safari cannot be controlled)');
+    console.log(chalk.white('\n  Either install Google Chrome: ') + chalk.cyan('https://www.google.com/chrome/'));
+    console.log(chalk.white('  Or use the Figma app instead: ') + chalk.cyan('figma-cli connect') + '\n');
     return;
   }
-  spinner.succeed('Figma design file detected in the browser');
 
-  // Persist the mode and start the CDP daemon. The daemon reuses the same
-  // figma-client.js target discovery, so it connects to the browser tab.
+  if (!result.ready) {
+    // First run: sign in once (the profile keeps the login), then open a file.
+    spinner.stopAndPersist({ symbol: chalk.yellow('→'), text: result.needsLogin || firstRun
+      ? 'Sign in to Figma in the browser window that just opened (only needed once), then open a design file'
+      : 'Open a design file in the browser window' });
+    const wait = ora('Waiting for a Figma file...').start();
+    result = await ensureBrowserReady({ port, profileDir, launch: false, waitMs: 300000 });
+    if (!result.ready) {
+      wait.warn('No Figma file open yet. Open one in the browser and run this again');
+      return;
+    }
+    wait.succeed('Figma file open');
+  } else {
+    spinner.succeed('Figma file open');
+  }
+
   config.browser = true;
   config.patched = false;
+  config.browserLastUrl = cleanFileUrl(result.url) || config.browserLastUrl;
   saveConfig(config);
+
+  // Local fonts: Figma's font agent. The desktop app ships it. Without it
+  // install it once with Figma's own installer.
+  const fontSpinner = ora('Checking local fonts...').start();
+  const agent = await fontAgentStatus();
+  if (agent.running) {
+    fontSpinner.succeed('Local fonts available');
+  } else if (!FONT_AGENT_INSTALLERS[process.platform]) {
+    fontSpinner.warn('Figma does not support local fonts in the browser on this system. Google Fonts still work');
+  } else {
+    fontSpinner.text = 'Installing the Figma font installer for your local fonts...';
+    try {
+      const inst = await installFontAgent({ dir: join(CONFIG_DIR, 'tmp', 'font-agent') });
+      if (inst.installed) {
+        fontSpinner.succeed('Local fonts available (Figma font installer added)');
+        try {
+          const c = await FigmaClient.listPages();
+          const tab = c.find(p => p.url === result.url);
+          if (tab) {
+            const ws = new (await import('ws')).default(tab.wsUrl);
+            await new Promise((res) => { ws.on('open', () => { ws.send(JSON.stringify({ id: 1, method: 'Page.reload' })); setTimeout(() => { ws.close(); res(); }, 300); }); ws.on('error', res); });
+            await ensureBrowserReady({ port, profileDir, launch: false, waitMs: 20000 });
+          }
+        } catch {}
+      } else {
+        fontSpinner.warn('Local fonts not available yet. Finish the Figma font installer, then reload the Figma tab');
+      }
+    } catch (e) {
+      fontSpinner.warn('Could not install the Figma font installer: ' + e.message);
+    }
+  }
 
   const daemonSpinner = ora('Starting speed daemon...').start();
   try {
     startDaemon(true, 'cdp');
     await new Promise(r => setTimeout(r, 1500));
     if (isDaemonRunning()) {
-      daemonSpinner.succeed('Speed daemon running (Browser Mode — no app patch)');
-      console.log(chalk.green('\n  ✓ Ready! Browser Mode active — your Figma app was never modified.\n'));
+      daemonSpinner.succeed('Speed daemon running');
+      console.log(chalk.green('\n  ✓ Ready! Next time figma-cli opens this file in the browser by itself.\n'));
     } else {
       daemonSpinner.warn('Daemon failed to start, commands will be slower');
     }

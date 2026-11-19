@@ -31,16 +31,16 @@ const collections = program
 collections
   .command('list')
   .description('List all collections')
-  .action(() => {
-    checkConnection();
+  .action(async () => {
+    await checkConnection();
     figmaUse('collection list');
   });
 
 collections
   .command('create <name>')
   .description('Create a collection')
-  .action((name) => {
-    checkConnection();
+  .action(async (name) => {
+    await checkConnection();
     figmaUse(`collection create "${name}"`);
   });
 
@@ -54,8 +54,8 @@ tokens
   .command('tailwind')
   .description('Create Tailwind CSS color palette')
   .option('-c, --collection <name>', 'Collection name', 'Color - Primitive')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating Tailwind color palette...').start();
 
     const tailwindColors = {
@@ -121,7 +121,7 @@ tokens
   .command('preset <name>')
   .description('Add color presets: shadcn, radix')
   .action(async (preset) => {
-    checkConnection();
+    await checkConnection();
 
     const presetLower = preset.toLowerCase();
 
@@ -357,8 +357,8 @@ tokens
   .command('shadcn')
   .description('Create shadcn/ui color primitives (from v3.shadcn.com/colors)')
   .option('-c, --collection <name>', 'Collection name', 'shadcn/primitives')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating shadcn color primitives...').start();
 
     // All colors from https://v3.shadcn.com/colors
@@ -425,8 +425,8 @@ tokens
   .command('spacing')
   .description('Create spacing scale (4px base)')
   .option('-c, --collection <name>', 'Collection name', 'Spacing')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating spacing scale...').start();
 
     const spacings = {
@@ -468,8 +468,8 @@ tokens
   .command('radii')
   .description('Create border radius scale')
   .option('-c, --collection <name>', 'Collection name', 'Radii')
-  .action((options) => {
-    checkConnection();
+  .action(async (options) => {
+    await checkConnection();
     const spinner = ora('Creating border radii...').start();
 
     const radii = {
@@ -510,8 +510,8 @@ tokens
   .description('Import tokens from JSON file')
   .option('-c, --collection <name>', 'Collection name')
   .option('--force-slash', 'Allow "/" in --collection (bypasses the LLM-mistake guard)')
-  .action((file, options) => {
-    checkConnection();
+  .action(async (file, options) => {
+    await checkConnection();
     // Guard against LLM-style mistakes: a "/" in the collection name almost
     // always means the caller split one DESIGN.md across multiple `tokens
     // import` runs (e.g. -c "stripe/colors", -c "stripe/radius"). Figma
@@ -718,7 +718,7 @@ tokens
       return;
     }
 
-    checkConnection();
+    await checkConnection();
     const { toTokensImportJson, summarizeForLLM, variableImportCode, chunkVariableTokens } = await import('../design-md.js');
 
     // Authoritative path: the file carries real variable collections (from
@@ -856,7 +856,7 @@ tokens
   .command('ds')
   .description('Create IDS Base Design System (complete starter kit)')
   .action(async () => {
-    checkConnection();
+    await checkConnection();
 
     console.log(chalk.cyan('\n  IDS Base Design System'));
     console.log(chalk.gray('  by Into Design Systems\n'));
@@ -1056,7 +1056,7 @@ tokens
   .command('components')
   .description('Create IDS Base Components (Button, Input, Card, Badge)')
   .action(async () => {
-    checkConnection();
+    await checkConnection();
 
     console.log(chalk.cyan('\n  IDS Base Components'));
     console.log(chalk.gray('  by Into Design Systems\n'));
@@ -1180,8 +1180,8 @@ tokens
   .description('Add a single token')
   .option('-c, --collection <name>', 'Collection name', 'Tokens')
   .option('-t, --type <type>', 'Type: COLOR, FLOAT, STRING, BOOLEAN (auto-detected if not set)')
-  .action((name, value, options) => {
-    checkConnection();
+  .action(async (name, value, options) => {
+    await checkConnection();
 
     const code = `(async () => {
 function hexToRgb(hex) {
