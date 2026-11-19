@@ -189,6 +189,11 @@ function buildNodeSelector(options, { filterExpr = '' } = {}) {
 // Daemon configuration
 const DAEMON_PORT = 3456;
 const DAEMON_PID_FILE = join(homedir(), '.figma-cli-daemon.pid');
+
+// Unique temp names: two CLI calls in the same millisecond must not share files.
+function tmpName(prefix, ext) {
+  return join(tmpdir(), `${prefix}-${process.pid}-${Date.now()}-${randomBytes(6).toString('hex')}.${ext}`);
+}
 const DAEMON_TOKEN_FILE = join(homedir(), '.figma-ds-cli', '.daemon-token');
 
 // Generate and save a new session token for daemon authentication
@@ -698,7 +703,7 @@ function figmaEvalSync(code) {
       // For simple expressions and multi-statement code, just pass through
       // The plugin will add return to the last statement
       const payload = JSON.stringify({ action: 'eval', code: wrappedCode });
-      const payloadFile = join(tmpdir(), `figma-payload-${Date.now()}.json`);
+      const payloadFile = tmpName('figma-payload', 'json');
       writeFileSync(payloadFile, payload);
       const daemonToken = getDaemonToken();
       const tokenHeader = daemonToken ? ` -H "X-Daemon-Token: ${daemonToken}"` : '';
@@ -730,8 +735,8 @@ function figmaEvalSync(code) {
   }
 
   // Fallback: direct connection via temp script
-  const tempFile = join(tmpdir(), `figma-eval-${Date.now()}.mjs`);
-  const resultFile = join(tmpdir(), `figma-result-${Date.now()}.json`);
+  const tempFile = tmpName('figma-eval', 'mjs');
+  const resultFile = tmpName('figma-result', 'json');
 
   // Use file:// URL for ESM import (cross-platform). Resolve relative to
   // this file, not process.cwd(), so the CLI works from any directory.
