@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.4.0 (2026-11-19)
+
+Thanks to everyone who sent a pull request. Each change below names the PR it came from.
+
+### Added
+
+- `figma-cli comments` reads Figma comment threads. It is opt-in and needs your own Figma token (#55)
+- `figma-cli styles` lists the file's text styles. `<Text textStyle="H1">` also matches by the part after the last "/" and finds library styles already used on the page. `--auto-style` matches unstyled text to a style (#44)
+- Codex support: a Codex plugin manifest and `init-agent --tool codex` (#46)
+
+### Changed
+
+- `remove-bg` uses Leonardo.Ai because remove.bg shuts down its self-service API on December 1, 2026. It needs a Leonardo API key. An old remove.bg key gets a clear message (#62)
+- `connect --desktop` leaves a Figma Desktop that already has the debug port open running instead of quitting it. A Browser Mode Chrome on the port is never killed (#40)
+
+### Fixed
+
+- `render` reports the real error instead of "frame is not defined" and removes the half-built frame (#59, #43)
+- `<Icon>` is no longer dropped when a quoted value contains `/` (#59)
+- Auto-split leaves wrappers alone whose children fill or grow, and variant-named frames (#59)
+- A timeout no longer runs `eval` a second time. `render` gets 90 seconds (#59)
+- `w="fill"` and `h="fill"` work on root frames with `--parent` and on rectangles, ellipses and images (#43)
+- Windows starts the newest installed Figma build (#60)
+- Concurrent `eval` calls no longer share temp files (#20)
+- ws 8.22.0, yaml 2.9.1. CI uses actions/checkout and setup-node v7 (#56, #32, #33)
+
 ## 2.3.0 (2026-11-19)
 
 ### Changed
