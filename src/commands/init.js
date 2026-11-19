@@ -12,11 +12,13 @@ import { RULE_FILES, syncRulesFile } from '../lib/agent-rules.js';
 
 program
   .command('init-agent')
-  .description('Scaffold agent rules so figma-cli works out of the box in Claude Code & Cursor')
-  .option('--tool <tool>', 'claude | cursor | both', 'both')
+  .description('Scaffold agent rules so figma-cli works out of the box in Claude Code, Cursor & Codex')
+  .option('--tool <tool>', 'claude | cursor | codex | both', 'both')
   .option('--force', 'overwrite existing figma-cli rule files')
   .action((options) => {
-    const tool = String(options.tool).toLowerCase();
+    // Codex reads AGENTS.md, the same file Claude Code uses.
+    const raw = String(options.tool).toLowerCase();
+    const tool = raw === 'codex' ? 'claude' : raw;
     const cwd = process.cwd();
     const results = [];
 
@@ -32,6 +34,6 @@ program
       else if (r.status === 'up-to-date') console.log(chalk.gray('• up-to-date'), rel);
       else console.log(chalk.yellow('• exists (use --force to overwrite)'), rel);
     }
-    console.log(chalk.gray('\nDesigners can now ask Claude Code or Cursor to build in Figma — the agent knows the rules.'));
+    console.log(chalk.gray('\nDesigners can now ask Claude Code, Cursor or Codex to build in Figma — the agent knows the rules.'));
     console.log(chalk.gray('Next: open Figma Desktop and run `figma-cli connect`.'));
   });
