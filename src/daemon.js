@@ -21,6 +21,7 @@ import { join, dirname } from 'path';
 import { homedir, tmpdir } from 'os';
 import { fileURLToPath, pathToFileURL } from 'url';
 import { wrapCodeIfNeeded } from './lib/eval-wrap.js';
+import { evalTimeoutMs } from './lib/timeouts.js';
 
 const DAEMON_ROOT = dirname(fileURLToPath(import.meta.url));
 const DAEMON_VERSION = (() => { try { return JSON.parse(readFileSync(join(DAEMON_ROOT, '..', 'package.json'), 'utf8')).version; } catch { return null; } })();
@@ -417,7 +418,7 @@ async function handleRequest(req, res) {
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
-          const { action, code, jsx, jsxArray, gap, vertical, collection } = payload;
+          const { action, code, jsx, jsxArray, gap, vertical, collection, timeoutMs } = payload;
           let result;
 
           const execWithTimeout = async (fn, timeoutMs = 30000) => {
@@ -431,7 +432,9 @@ async function handleRequest(req, res) {
 
           switch (action) {
             case 'eval':
-              result = await execWithTimeout(() => executeEval(code));
+              // Callers that run long, mutating code (render sends its
+              // generated code here) can ask for a larger, bounded budget.
+              result = await execWithTimeout(() => executeEval(code), evalTimeoutMs(timeoutMs));
               break;
             case 'render': {
               // Parse JSX to code, then execute via unified eval (works with both CDP and Plugin)

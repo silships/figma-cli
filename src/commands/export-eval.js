@@ -1,4 +1,5 @@
 // Commands: export-eval (extracted from index.js)
+import { classifyDaemonError } from '../lib/timeouts.js';
 import chalk from 'chalk';
 import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
@@ -361,11 +362,10 @@ program
         return;
       } catch (e) {
         // Check if this is a connection/daemon error vs user code error
-        const isConnectionError = e.message.includes('ECONNREFUSED') ||
-                                  e.message.includes('fetch failed') ||
-                                  e.message.includes('network') ||
-                                  e.message.includes('timeout') ||
-                                  e.message.includes('disconnected');
+        // Only fall back when nothing ran. A timeout means the code may still
+        // be executing in Figma; re-running it on the direct connection could
+        // duplicate whatever it creates.
+        const isConnectionError = classifyDaemonError(e) === 'connection' || e.message.includes('network');
         if (isConnectionError) {
           // Connection/daemon error - fall back to sync path
           console.log(chalk.yellow('⚠ Daemon error, trying sync path...'));

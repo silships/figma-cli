@@ -1094,12 +1094,12 @@ export class FigmaClient {
 
     // Match name="value", name={value} and a bare number (x=48), which agents
     // write often enough that silently dropping it cost them a fix-up round.
-    const regex = /(\w+)=(?:"([^"]*)"|{([^}]*)}|(-?\d+(?:\.\d+)?)(?=[\s/>]|$))/g;
+    const regex = /(\w+)=(?:"([^"]*)"|'([^']*)'|{([^}]*)}|(-?\d+(?:\.\d+)?)(?=[\s/>]|$))/g;
     let match;
 
     while ((match = regex.exec(propsStr)) !== null) {
       const key = match[1];
-      const value = match[2] !== undefined ? match[2] : match[3] !== undefined ? match[3] : match[4];
+      const value = [match[2], match[3], match[4], match[5]].find(v => v !== undefined);
       props[key] = value;
     }
 
@@ -1259,9 +1259,12 @@ export class FigmaClient {
     }
 
     // Parse Icon elements (self-closing) - creates placeholder
-    const iconRegex = /<Icon\s+([^/]*)\s*\/>/g;
+    // quoted values may contain '/' (color="var:color/fg"), so skip over them
+    const iconRegex = /<Icon\s+((?:[^"'\/>]|"[^"]*"|'[^']*')*)\s*\/>/g;
+    const iconStarts = new Set();
     while ((match = iconRegex.exec(childrenStr)) !== null) {
       const idx = match.index;
+      iconStarts.add(idx);
       const insideFrame = frameRanges.some(r => idx >= r.start && idx < r.end);
       if (!insideFrame) {
         const iconProps = this.parseProps(match[1]);
@@ -1269,6 +1272,15 @@ export class FigmaClient {
         iconProps._index = idx;
         children.push(iconProps);
       }
+    }
+    // An <Icon> the regex could not read used to vanish without a trace.
+    const iconTagRegex = /<Icon\b/g;
+    while ((match = iconTagRegex.exec(childrenStr)) !== null) {
+      const idx = match.index;
+      if (iconStarts.has(idx) || frameRanges.some(r => idx >= r.start && idx < r.end)) continue;
+      const snippet = childrenStr.slice(idx, idx + 120).split('\n')[0];
+      throw new Error(`Could not parse <Icon> tag: ${snippet}${snippet.length >= 120 ? '…' : ''}\n` +
+        'Expected a self-closing tag with quoted or {braced} values, e.g. <Icon name="lucide:home" size={16} color="var:color/fg" />');
     }
 
     // Parse Instance elements (self-closing) - creates component instance
@@ -2186,8 +2198,12 @@ export class FigmaClient {
         ${smartPosCode}
 
         let __currentNode = 'root';
+        // Declared outside the try so the catch can clean up the partial frame
+        // and rethrow the real error (a const inside the try made the catch
+        // itself fail with "frame is not defined", hiding the cause).
+        let frame = null;
         try {
-        const frame = figma.createFrame();
+        frame = figma.createFrame();
         __currentNode = ${JSON.stringify(name)};
         frame.name = ${JSON.stringify(name)};
         frame.resize(${width}, ${height});
@@ -2247,8 +2263,8 @@ export class FigmaClient {
           ? { id: __root.id, name: __root.name, unresolved: __unresolved, layoutWarnings: __layoutWarnings, notes: __notes, summary: __summary }
           : { id: __root.id, name: __root.name, summary: __summary };
         } catch(e) {
-          frame.remove();
-          throw new Error('[Node: ' + __currentNode + '] ' + e.message);
+          if (frame) { try { frame.remove(); } catch (_) {} }
+          throw new Error('[Node: ' + __currentNode + '] ' + (e && e.message ? e.message : String(e)));
         }
       })()
     `;

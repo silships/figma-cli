@@ -160,3 +160,26 @@ describe('root instances', () => {
     assert.ok(code.includes('insertChild'));
   });
 });
+
+describe('<Icon> attributes containing slashes', () => {
+  const c = new FigmaClient();
+  it('keeps an icon whose color is a slash-named variable', () => {
+    const kids = c.parseChildren('<Icon name="lucide:arrow-right" size={16} color="var:color/fg" />');
+    assert.deepStrictEqual(kids.map(k => [k._type, k.name, k.size, k.color]), [['icon', 'lucide:arrow-right', '16', 'var:color/fg']]);
+  });
+  it("reads single-quoted values with slashes (name='arrow/right')", () => {
+    const kids = c.parseChildren("<Icon name='arrow/right' size={16} />");
+    assert.deepStrictEqual(kids.map(k => [k._type, k.name]), [['icon', 'arrow/right']]);
+  });
+  it('keeps the icon when nested in a Frame next to text', () => {
+    const [row] = c.parseChildren('<Frame name="Link" flex="row" gap={8}><Text>Read more</Text><Icon name="lucide:arrow-right" size={16} color="var:color/fg" /></Frame>');
+    assert.deepStrictEqual(row._children.map(k => k._type), ['text', 'icon']);
+    assert.strictEqual(row._children[1].color, 'var:color/fg');
+  });
+  it('throws on an <Icon> tag it cannot parse instead of dropping it', () => {
+    assert.throws(() => c.parseChildren('<Icon name="lucide:home" size={16}>'), /Could not parse <Icon> tag/);
+  });
+  it('parseProps accepts single-quoted values', () => {
+    assert.deepStrictEqual(c.parseProps("name='arrow/right' color=\"var:color/fg\""), { name: 'arrow/right', color: 'var:color/fg' });
+  });
+});
