@@ -308,4 +308,18 @@ export function isFigmaRunning() {
   return false;
 }
 
+// Figma Desktop itself, by exact process name (same match as killFigmaApp).
+// isFigmaRunning() uses `pgrep -f Figma`, which also matches the always-on
+// "Figma Agent" font helper, so it reads true with no Figma window open.
+export function isFigmaAppRunning() {
+  try {
+    if (PLATFORM === 'darwin') {
+      return execSync('pgrep -x Figma 2>/dev/null || true', { encoding: 'utf8' }).trim().length > 0;
+    } else if (PLATFORM === 'win32') {
+      return execSync('tasklist /FI "IMAGENAME eq Figma.exe" 2>nul', { encoding: 'utf8' }).includes('Figma.exe');
+    }
+    return execSync('pgrep -x figma 2>/dev/null || true', { encoding: 'utf8' }).trim().length > 0;
+  } catch { return false; }
+}
+
 export const platformName = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }[PLATFORM] || PLATFORM;

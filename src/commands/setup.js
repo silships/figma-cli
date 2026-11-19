@@ -10,6 +10,8 @@ import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getCdpPort } from '../figma-patch.js';
 import { pickConnectMode, ensureBrowserReady, cleanFileUrl, fontAgentStatus, installFontAgent, FONT_AGENT_INSTALLERS, hasProfile } from '../lib/browser-mode.js';
 import { convert, detectSourceType } from '../code-import/index.js';
+import { resolveConnectAction, cdpOwner } from '../lib/connect-plan.js';
+import { isFigmaAppRunning } from '../platform.js';
 import {
   program,
   CONFIG_DIR,
@@ -766,35 +768,65 @@ program
       }
     }
 
+    // Don't touch a Figma Desktop that is already debuggable (PR #40).
+    // Quitting it costs the user their window arrangement and unsaved state.
+    let version = null;
+    try {
+      const probe = await fetch(`http://127.0.0.1:${getCdpPort()}/json/version`, { signal: AbortSignal.timeout(2000) });
+      if (probe.ok) version = await probe.json();
+    } catch {}
+    const action = resolveConnectAction({ cdp: cdpOwner(version), figmaRunning: isFigmaAppRunning() });
+
+    if (action === 'port-busy') {
+      // The Browser Mode Chrome holds the debug port. Figma Desktop cannot
+      // bind it, and that Chrome is the user's, so we do not kill it.
+      console.log(chalk.yellow(`\n  Port ${getCdpPort()} is used by the Browser Mode Chrome window.`));
+      console.log(chalk.white('  Close that Chrome window, then run ') + chalk.cyan('figma-cli connect --desktop') + chalk.white(' again.'));
+      console.log(chalk.gray('  Or keep working in Chrome: ') + chalk.cyan('figma-cli connect --browser\n'));
+      return;
+    }
+
+    if (action === 'needs-quit') {
+      // Figma is up but without the debug port. Only the user can quit it
+      // safely, so ask rather than kill.
+      console.log(chalk.yellow('\n  Figma is running, but the debug port is not open.'));
+      console.log(chalk.white('  Quit Figma (Cmd+Q), then run ') + chalk.cyan('figma-cli connect --desktop') + chalk.white(' again.\n'));
+      return;
+    }
+
     // Stop any existing daemon
     stopDaemon();
 
-    console.log(chalk.blue('Starting Figma...'));
-    try {
-      killFigma();
-      await new Promise(r => setTimeout(r, 500));
-    } catch {}
+    if (action === 'start-fresh') {
+      console.log(chalk.blue('Starting Figma...'));
+      try {
+        killFigma();
+        await new Promise(r => setTimeout(r, 500));
+      } catch {}
 
-    startFigma();
-    console.log(chalk.green('✓ Figma started\n'));
+      startFigma();
+      console.log(chalk.green('✓ Figma started\n'));
 
-    // Wait and check connection
-    const spinner = ora('Waiting for connection...').start();
-    let connected = false;
-    for (let i = 0; i < 8; i++) {
-      await new Promise(r => setTimeout(r, 1000));
-      const result = figmaUse('status', { silent: true });
-      if (result && result.includes('Connected')) {
-        spinner.succeed('Connected to Figma');
-        console.log(chalk.gray(result.trim()));
-        connected = true;
-        break;
+      // Wait and check connection
+      const spinner = ora('Waiting for connection...').start();
+      let connected = false;
+      for (let i = 0; i < 8; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const result = figmaUse('status', { silent: true });
+        if (result && result.includes('Connected')) {
+          spinner.succeed('Connected to Figma');
+          console.log(chalk.gray(result.trim()));
+          connected = true;
+          break;
+        }
       }
-    }
 
-    if (!connected) {
-      spinner.warn('Open a file in Figma to connect');
-      return;
+      if (!connected) {
+        spinner.warn('Open a file in Figma to connect');
+        return;
+      }
+    } else {
+      console.log(chalk.green('✓ Figma already running (left untouched)\n'));
     }
 
     // Start daemon for fast commands (force restart to get fresh connection)
