@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.3.0 (2026-11-19)
+
+### Changed
+
+- `figma-cli connect` opens Figma in Google Chrome (Browser Mode) by default. The Figma Desktop app is never modified. Edge, Brave and Chromium work too
+- The Figma Desktop app (Yolo Mode) moves to `figma-cli connect --desktop` (or `--yolo`). Anyone who already connected the desktop app keeps it on a bare `connect`
+- The README starts with a 4-step setup for designers. Browser Mode comes first in the README, the agent rules and the plugin skill
+
+### Added
+
+- While `connect` waits a banner inside the Figma window says to sign in or open a design file. It disappears once a file is open
+- The agent rules tell Claude to announce the Chrome window before it connects
+- Browser Mode reopens the last file, keeps the Figma login in its own Chrome profile and installs Figma's font agent for local fonts when it is missing
+
+### Fixed
+
+- Figma Slides files connect. `FIGMA_FILE` is honored before the daemon binds
+- figma-cli waits for the Plugin API instead of binding to a file that is still loading
+- Every command awaits the connection check
+- The port cleanup kills only the process listening on the port. Before it could kill the CLI itself (exit 137)
+- Chrome no longer throttles the hidden Figma window
+
 ## 2.2.5 (2026-09-26)
 
 ### Fixed

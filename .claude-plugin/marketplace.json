@@ -9,7 +9,7 @@
       "name": "figma-cli",
       "source": "./",
       "description": "Build and edit designs directly in Figma Desktop from your terminal — render frames/components/variants, manage design tokens & variables (shadcn/Tailwind/DTCG), extract & import whole design systems, gradients, Figma Motion, and accessibility audits. No API key.",
-      "version": "2.1.0",
+      "version": "2.3.0",
       "author": {
         "name": "Sil Bormüller",
         "url": "https://intodesignsystems.com"
