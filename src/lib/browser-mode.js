@@ -162,6 +162,47 @@ export async function routeToFile(port, fileUrl, { waitMs = 20000 } = {}) {
   return false;
 }
 
+// While figma-cli waits, the designer looks at the browser, not the terminal
+// (an agent shows no output until the command ends). Pin the next step on top
+// of the Figma page itself. Idempotent: a navigation drops the banner and the
+// next poll puts it back.
+export function hintText(url) {
+  return isLoginUrl(url)
+    ? 'figma-cli: Sign in to Figma, then open a design file. figma-cli connects by itself'
+    : 'figma-cli: Open a design file or create a new one. figma-cli connects by itself';
+}
+
+const hintJs = (text) => `(() => {
+  let el = document.getElementById('figma-cli-hint');
+  if (!el) {
+    if (!document.body) return false;
+    el = document.createElement('div');
+    el.id = 'figma-cli-hint';
+    document.body.appendChild(el);
+  }
+  // Bottom center: the top bar holds Figma's "new design file" button.
+  el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:2147483647;background:#0d99ff;color:#fff;font:600 15px/1.4 Inter,system-ui,sans-serif;padding:12px 20px;border-radius:999px;box-shadow:0 6px 24px rgba(0,0,0,.25);pointer-events:none;max-width:90vw;text-align:center';
+  el.textContent = ${JSON.stringify(text)};
+  return true;
+})()`;
+
+export async function showWaitHint(port) {
+  try {
+    const pages = await fetchJson(`http://127.0.0.1:${port}/json`);
+    const tabs = pages.filter(p => p.type === 'page' && /figma\.com/.test(p.url || '') && !isFigmaFileUrl(p.url));
+    await Promise.all(tabs.map(t => evalInTab(t.webSocketDebuggerUrl, hintJs(hintText(t.url)), 1500)));
+  } catch {}
+}
+
+// Figma routes into a file without a page load, so the banner would stay.
+export async function clearWaitHint(port) {
+  try {
+    const pages = await fetchJson(`http://127.0.0.1:${port}/json`);
+    const tabs = pages.filter(p => p.type === 'page' && /figma\.com/.test(p.url || ''));
+    await Promise.all(tabs.map(t => evalInTab(t.webSocketDebuggerUrl, "document.getElementById('figma-cli-hint')?.remove()", 1500)));
+  } catch {}
+}
+
 // Open a URL as a new tab in an already running debug browser.
 async function openTab(port, url) {
   try {
@@ -179,6 +220,7 @@ async function openTab(port, url) {
  */
 export async function ensureBrowserReady({ port, profileDir, lastUrl, waitMs = 30000, onLaunch, launch = true } = {}) {
   const settled = async (launched) => {
+    await clearWaitHint(port);
     // Only a fresh launch can still be mid-reload; an open file is stable.
     const s = await settleFileTab(port, { waitMs, stable: launched });
     return s.loaded
@@ -212,10 +254,13 @@ export async function ensureBrowserReady({ port, profileDir, lastUrl, waitMs = 3
   }
 
   const start = Date.now();
+  let polls = 0;
   while (Date.now() - start < waitMs) {
     await new Promise(r => setTimeout(r, 500));
     state = await probeBrowserCdp(port);
     if (state.fileTab) return settled(launched);
+    // Waiting on the designer: show the next step in the browser (every 2s).
+    if (!launch && polls++ % 4 === 0) await showWaitHint(port);
     if (launch && state.loginTab) return { ready: false, url: null, launched, needsLogin: true };
   }
   return { ready: false, url: null, launched, needsLogin: state.loginTab };
