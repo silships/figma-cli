@@ -6,18 +6,18 @@ description: Build and edit designs directly in Figma Desktop from the terminal 
 # Using figma-cli
 
 figma-cli controls **Figma Desktop** directly (no API key). It runs in any
-terminal. Open Figma Desktop, then `figma-cli connect` once per session.
+terminal. Run `figma-cli connect` once per session. It opens Figma in Google Chrome.
 
 If the `figma-cli` command is not found, the tool isn't installed yet — see
 **Installation** at the bottom. Never show raw terminal commands to the user;
 run them silently and give friendly feedback.
 
 ## Connect (pick one mode, offer them in this order)
-- `figma-cli connect --browser` — **Browser (recommended)**: drives Figma in a Chromium
+- `figma-cli connect` — **Browser (default, needs Google Chrome)**: drives Figma in a Chromium
   browser via a local connection; **never modifies the Figma app**. Tell the designer
-  BEFORE running it: "A Chrome window opens in a moment. Sign in to Figma there and open
+  BEFORE running it: "A Google Chrome window opens in a moment. Sign in to Figma there and open
   a design file. I connect by myself as soon as it is open."
-- `figma-cli connect` — **Yolo**: for the Figma Desktop app, patches it once, fully automatic.
+- `figma-cli connect --desktop` — **Yolo**: for the Figma Desktop app, patches it once, fully automatic.
 - `figma-cli connect --safe` — **Safe**: official plugin (Plugins → Development → FigCli).
 
 ## Golden rules
@@ -57,8 +57,8 @@ Don't read the structure markdown by hand. Use:
 
 ## Handy commands
 ```
-figma-cli connect --browser            # connect to Figma in Chrome (recommended)
-figma-cli connect                      # connect to Figma Desktop (yolo)
+figma-cli connect                      # Figma in Google Chrome (default)
+figma-cli connect --desktop            # Figma Desktop app (yolo)
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row
 figma-cli shadcn add button --count 3  # N distinct shadcn primitives

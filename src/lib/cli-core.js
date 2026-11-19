@@ -361,7 +361,7 @@ async function daemonExec(action, data = {}, timeoutMs = 90000) {
             throw new Error(
               'Plugin not connected.\n' +
               'In Figma: Plugins → Development → FigCli (keep that tab open).\n' +
-              'Or switch to Yolo Mode: node src/index.js connect'
+              'Or switch to the Figma Desktop app: node src/index.js connect --desktop'
             );
           }
           // Clean up error: remove stack trace line numbers for cleaner output
@@ -889,8 +889,8 @@ async function checkConnection() {
   if (!connected) {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect --browser') + chalk.gray(' (Browser Mode, recommended)'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode, Figma Desktop app)'));
+    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Browser Mode, needs Google Chrome)'));
+    console.log(chalk.cyan('  figma-ds-cli connect --desktop') + chalk.gray(' (Figma Desktop app)'));
     console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }
@@ -918,8 +918,8 @@ function checkConnectionSync() {
   } catch {
     console.log(chalk.red('\n✗ Not connected to Figma\n'));
     console.log(chalk.white('  Make sure Figma is running:'));
-    console.log(chalk.cyan('  figma-ds-cli connect --browser') + chalk.gray(' (Browser Mode, recommended)'));
-    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Yolo Mode, Figma Desktop app)'));
+    console.log(chalk.cyan('  figma-ds-cli connect') + chalk.gray(' (Browser Mode, needs Google Chrome)'));
+    console.log(chalk.cyan('  figma-ds-cli connect --desktop') + chalk.gray(' (Figma Desktop app)'));
     console.log(chalk.cyan('  figma-ds-cli connect --safe') + chalk.gray(' (Safe Mode)\n'));
     process.exit(1);
   }

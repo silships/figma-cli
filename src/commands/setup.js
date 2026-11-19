@@ -8,7 +8,7 @@ import { join, basename } from 'path';
 import { FigmaClient } from '../figma-client.js';
 import * as apiDocs from '../api-docs.js';
 import { isPatched, patchFigma, unpatchFigma, getCdpPort } from '../figma-patch.js';
-import { ensureBrowserReady, cleanFileUrl, fontAgentStatus, installFontAgent, FONT_AGENT_INSTALLERS, hasProfile } from '../lib/browser-mode.js';
+import { pickConnectMode, ensureBrowserReady, cleanFileUrl, fontAgentStatus, installFontAgent, FONT_AGENT_INSTALLERS, hasProfile } from '../lib/browser-mode.js';
 import { convert, detectSourceType } from '../code-import/index.js';
 import {
   program,
@@ -519,7 +519,8 @@ program
 // persistent profile (the Figma login survives closing the window), reopens
 // the last used file, makes sure local fonts work, then starts the daemon.
 async function connectBrowser(config) {
-  console.log(chalk.hex('#4ECDC4')('  🌐 Browser Mode ') + chalk.gray('(Figma in your browser, the Figma app is never modified)\n'));
+  console.log(chalk.hex('#4ECDC4')('  🌐 Browser Mode ') + chalk.gray('(Figma in Google Chrome, the Figma app is never modified)'));
+  console.log(chalk.gray('  Needs Google Chrome (Edge, Brave or Chromium work too). Figma Desktop app instead: figma-cli connect --desktop\n'));
 
   const port = getCdpPort();
   const profileDir = join(CONFIG_DIR, 'chrome-profile');
@@ -534,7 +535,7 @@ async function connectBrowser(config) {
   if (result.noBrowser) {
     spinner.fail('Browser Mode needs Chrome, Edge, Brave or Chromium (Safari cannot be controlled)');
     console.log(chalk.white('\n  Either install Google Chrome: ') + chalk.cyan('https://www.google.com/chrome/'));
-    console.log(chalk.white('  Or use the Figma app instead: ') + chalk.cyan('figma-cli connect') + '\n');
+    console.log(chalk.white('  Or use the Figma Desktop app instead: ') + chalk.cyan('figma-cli connect --desktop') + '\n');
     return;
   }
 
@@ -609,9 +610,11 @@ async function connectBrowser(config) {
 
 program
   .command('connect')
-  .description('Connect to Figma Desktop')
-  .option('--safe', 'Use Safe Mode (plugin-based, no patching required)')
-  .option('--browser', 'Use Browser Mode (drive Figma in a Chromium browser via CDP — never modifies the Figma app)')
+  .description('Connect to Figma (default: Browser Mode in Google Chrome)')
+  .option('--browser', 'Browser Mode: Figma in Google Chrome, never modifies the Figma app (default)')
+  .option('--desktop', 'Yolo Mode: the Figma Desktop app (patches it once)')
+  .option('--yolo', 'Same as --desktop')
+  .option('--safe', 'Safe Mode: plugin-based, no patching required')
   .action(async (options) => {
     // Fun welcome message
     console.log(chalk.hex('#FF6B35')('\n  ✨ Hey designer! ') + chalk.white("Don't be afraid of the terminal!"));
@@ -632,14 +635,16 @@ program
       }
     } catch {}
 
-    // Browser Mode: CDP to a normal browser — the Figma app is never modified.
-    if (options.browser) {
+    const mode = pickConnectMode(options, config);
+
+    // Browser Mode (default): CDP to Chrome, the Figma app is never modified.
+    if (mode === 'browser') {
       await connectBrowser(config);
       return;
     }
 
     // Safe Mode: Plugin-based connection (no patching, no CDP)
-    if (options.safe) {
+    if (mode === 'safe') {
       console.log(chalk.hex('#4ECDC4')('  🔒 Safe Mode ') + chalk.gray('(plugin-based, no patching required)\n'));
 
       // Stop any existing daemon
@@ -714,8 +719,10 @@ program
       return;
     }
 
-    // Yolo Mode: CDP-based connection (default)
-    console.log(chalk.hex('#FF6B35')('  🚀 Yolo Mode ') + chalk.gray('(direct CDP connection)\n'));
+    // Yolo Mode: the Figma Desktop app over CDP (--desktop, or remembered)
+    console.log(chalk.hex('#FF6B35')('  🚀 Yolo Mode ') + chalk.gray('(Figma Desktop app, direct CDP connection)'));
+    console.log(chalk.gray('  Figma in Google Chrome instead: figma-cli connect --browser\n'));
+    if (config.browser) { config.browser = false; saveConfig(config); }
 
     // Patch Figma if needed. Verify against the actual app.asar, NOT the cached
     // config.patched flag: a Figma update replaces app.asar with a fresh (unpatched)

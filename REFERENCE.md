@@ -257,7 +257,8 @@ Shape types: `ROUNDED_RECTANGLE`, `RECTANGLE`, `ELLIPSE`, `DIAMOND`, `TRIANGLE_U
 ## Daemon & Connection
 
 ```bash
-node src/index.js connect                  # Connect (Yolo Mode)
+node src/index.js connect                  # Connect (Browser Mode, Google Chrome)
+node src/index.js connect --desktop        # Connect (Yolo Mode, Figma Desktop app)
 node src/index.js connect --safe           # Connect (Safe Mode, plugin)
 node src/index.js daemon status            # Check daemon status
 node src/index.js daemon status --debug    # Detailed token & connection info

@@ -17,12 +17,12 @@ import { homedir } from 'os';
 export const RULES_BODY = `# Using figma-cli
 
 figma-cli controls Figma directly (no API key): in Chrome (Browser Mode,
-recommended) or in Figma Desktop. Run \`figma-cli connect --browser\` (or
-\`figma-cli connect\` for the desktop app) once per session.
+the default, needs Google Chrome) or in Figma Desktop. Run \`figma-cli connect\`
+(or \`figma-cli connect --desktop\` for the desktop app) once per session.
 
-**Browser Mode** (\`figma-cli connect --browser\`, Figma in Chrome, the app is never
+**Browser Mode** (\`figma-cli connect\`, Figma in Google Chrome, the app is never
 modified): the command waits silently until a design file is open, so tell the
-designer BEFORE running it: "A Chrome window opens in a moment. Sign in to
+designer BEFORE running it: "A Google Chrome window opens in a moment. Sign in to
 Figma there and open a design file. I connect by myself as soon as it is open."
 
 ## Golden rules
@@ -127,8 +127,8 @@ Don't read the structure markdown by hand. Use:
 
 ## Handy commands
 \`\`\`
-figma-cli connect --browser            # Figma in Chrome (recommended)
-figma-cli connect                      # Figma Desktop app (yolo)
+figma-cli connect                      # Figma in Google Chrome (default)
+figma-cli connect --desktop            # Figma Desktop app (yolo)
 figma-cli render '<Frame>...</Frame>'  # one frame
 figma-cli render-batch '[ "<Frame>", ... ]' --direction row
 figma-cli shadcn add button --count 3  # N distinct shadcn primitives

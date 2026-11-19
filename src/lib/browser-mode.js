@@ -13,6 +13,17 @@ import WebSocket from 'ws';
 import { detectBrowser, startBrowserApp } from '../platform.js';
 
 export const FONT_AGENT_PORT = 44950;
+
+// Which mode a bare `figma-cli connect` uses. Browser Mode is the default.
+// Someone who already connected the Figma Desktop app (Yolo) keeps it, so an
+// update never swaps their Figma app for a Chrome window.
+export function pickConnectMode(options = {}, config = {}) {
+  if (options.safe) return 'safe';
+  if (options.desktop || options.yolo) return 'yolo';
+  if (options.browser) return 'browser';
+  if (config.patched && !config.browser) return 'yolo';
+  return 'browser';
+}
 export const FONT_AGENT_INSTALLERS = {
   darwin: 'https://desktop.figma.com/agent/mac/InstallFigmaAgent.dmg',
   win32: 'https://desktop.figma.com/agent/win/InstallFigmaAgent.exe',

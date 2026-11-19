@@ -136,7 +136,8 @@ figma-cli talks to Figma in one of three ways. Claude picks one during setup , h
 - Claude opens a browser window with remote debugging on, in its **own dedicated profile** (your Figma login and everyday browser stay untouched); you open your file there and keep working.
 - Works on locked-down company machines too because nothing gets patched and macOS asks for no extra permission. Just as fast as Yolo, and still fully local (no API key, no cloud).
 - Claude tells you before it starts: a Chrome window opens, you sign in once and open a design file. A blue banner in the Figma window says the same while it waits
-- Tell Claude *"connect to Figma in the browser"*.
+- Needs **Google Chrome** ([download](https://www.google.com/chrome/)). Edge, Brave and Chromium work too
+- This is what `figma-cli connect` does by default. Tell Claude *"connect to Figma"*.
 
 ### ⚡ Yolo Mode , for the Figma Desktop app
 - **Fully automatic.** Claude sets it up, you do nothing.

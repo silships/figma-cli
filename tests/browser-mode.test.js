@@ -112,3 +112,15 @@ test('seedProfilePermissions keeps existing preferences', () => {
   assert.equal(prefs.profile.name, 'x');
   assert.deepEqual(prefs.profile.content_settings.exceptions.cookies, { a: 1 });
 });
+
+import { pickConnectMode } from '../src/lib/browser-mode.js';
+
+test('pickConnectMode — Browser is the default, flags win, Desktop users keep Yolo', () => {
+  assert.equal(pickConnectMode({}, {}), 'browser');
+  assert.equal(pickConnectMode({}, { browser: true, patched: false }), 'browser');
+  assert.equal(pickConnectMode({}, { patched: true }), 'yolo');
+  assert.equal(pickConnectMode({ browser: true }, { patched: true }), 'browser');
+  assert.equal(pickConnectMode({ desktop: true }, {}), 'yolo');
+  assert.equal(pickConnectMode({ yolo: true }, {}), 'yolo');
+  assert.equal(pickConnectMode({ safe: true }, { browser: true }), 'safe');
+});

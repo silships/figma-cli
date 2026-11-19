@@ -6,7 +6,8 @@ CLI that controls Figma Desktop directly. No API key needed.
 
 | User says | Command |
 |-----------|---------|
-| "connect to figma" | `figma-cli connect` |
+| "connect to figma" | `figma-cli connect` (Browser Mode, needs Google Chrome) |
+| "connect to the Figma Desktop app" | `figma-cli connect --desktop` |
 | "add shadcn colors" | `figma-cli tokens preset shadcn` |
 | "add tailwind colors" | `figma-cli tokens tailwind` |
 | "show colors on canvas" | `figma-cli var visualize` |
@@ -412,9 +413,9 @@ figma-cli set fill "var:primary"
 
 ## Connection Modes
 
-**Browser Mode (Recommended, no app modification):** `figma-cli connect --browser` - Drives Figma running in a **normal Chromium browser** via CDP; the local Figma app is **never patched or modified**. It launches a Chrome/Edge/Brave/Chromium window with remote debugging enabled (dedicated persistent profile, so your Figma login and everyday browser profile are untouched), waits for you to open a design file there, then runs the same fast CDP path as Yolo. Use this when patching the desktop app is undesirable (compliance, no "App Management" permission, locked-down machine). Note: expects Figma Desktop not to be occupying the debug port (9222) at the same time.
+**Browser Mode (Default, needs Google Chrome, no app modification):** `figma-cli connect` - Drives Figma running in a **normal Chromium browser** via CDP; the local Figma app is **never patched or modified**. It launches a Chrome/Edge/Brave/Chromium window with remote debugging enabled (dedicated persistent profile, so your Figma login and everyday browser profile are untouched), waits for you to open a design file there, then runs the same fast CDP path as Yolo. Use this when patching the desktop app is undesirable (compliance, no "App Management" permission, locked-down machine). Note: expects Figma Desktop not to be occupying the debug port (9222) at the same time.
 
-**Yolo Mode (Figma Desktop app):** `figma-cli connect` - Patches Figma Desktop once, fully automatic.
+**Yolo Mode (Figma Desktop app):** `figma-cli connect --desktop` - Patches Figma Desktop once, fully automatic.
 
 **Safe Mode:** `figma-cli connect --safe` - Plugin-based, no Figma modification. Then: Plugins > Development > FigCli.
 
@@ -757,12 +758,12 @@ mismatch instead of letting Figma invent bogus "Property 1" axes.
 ## Onboarding
 
 1. Run `npm install` silently
-2. Offer the connection modes in this order: **Browser (recommended)**, Yolo
-   (Figma Desktop app), Safe. Without a preference use Browser.
-3. Run `figma-cli connect` (or `--browser`, or `--safe`)
+2. Offer the connection modes in this order: **Browser (recommended, needs
+   Google Chrome)**, Yolo (Figma Desktop app), Safe. Without a preference use Browser.
+3. Run `figma-cli connect` (Browser), `--desktop` (Yolo) or `--safe`
    - **Browser mode: tell the designer BEFORE running it.** The command waits
      silently until a design file is open and the designer watches the browser,
-     not the chat. Say: "A Chrome window opens in a moment. Sign in to Figma
+     not the chat. Say: "A Google Chrome window opens in a moment. Sign in to Figma
      there and open a design file. I connect by myself as soon as it is open."
      A banner inside the Figma window repeats this while connect waits.
 4. When connected, say: "Connected! What would you like to create?"

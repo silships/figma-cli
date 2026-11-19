@@ -29,14 +29,14 @@ Fixes go into the latest release on npm (`figma-ds-cli`). Older versions are not
 
 Security review of figma-cli is mostly a question of what the three connection modes touch, so here it is in full. This is also the section to point at when a company asks before approving the tool.
 
-### Yolo Mode (`figma-cli connect`)
+### Yolo Mode (`figma-cli connect --desktop`)
 
 - **Modifies the Figma Desktop app.** It rewrites one string in Figma's `app.asar` (`removeSwitch("remote-debugging-port")` becomes `removeSwitch("remote-debugXing-port")`), which stops Figma from stripping its own remote-debugging flag. Nothing else in the app is changed, no code is injected.
 - Figma then listens for the Chrome DevTools Protocol on **127.0.0.1:9222** (`FIGMA_PORT` overrides). CDP has no authentication, so any local process that can reach that port can drive Figma. Do not expose it beyond localhost.
 - A Figma update replaces `app.asar` and reverts the patch. Re-running `connect` re-applies it.
 - On macOS this needs the "App Management" permission for your terminal.
 
-### Browser Mode (`figma-cli connect --browser`)
+### Browser Mode (`figma-cli connect`, the default)
 
 - **Does not touch the Figma Desktop app.** It launches Chrome/Edge/Brave/Chromium with remote debugging on the same local port, using a dedicated persistent profile so your everyday browser profile and its cookies stay separate.
 - Same caveat as above: the CDP port is unauthenticated and local.
