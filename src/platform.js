@@ -61,7 +61,10 @@ export const getPortPid = PLATFORM === 'win32' ? getPortPidWindows : getPortPidU
 
 // --- Sleep after daemon stop ---
 export function sleepAfterStop() {
-  if (PLATFORM === 'win32') {
+  // Newest first, numerically: a plain sort ranks app-126.9.16 above app-126.10.13
+const byVersionDesc = (a, b) => b.localeCompare(a, undefined, { numeric: true });
+
+if (PLATFORM === 'win32') {
     try { execSync('ping -n 2 127.0.0.1 >nul', { stdio: 'pipe' }); } catch {}
   } else {
     try { execSync('sleep 0.5', { stdio: 'pipe' }); } catch {}
@@ -207,8 +210,7 @@ if (PLATFORM === 'win32') {
       const entries = readdirSync(figmaBase);
       const appFolders = entries
         .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
+        .sort(byVersionDesc);
 
       for (const folder of appFolders) {
         const asarPath = join(figmaBase, folder, 'resources', 'app.asar');
@@ -234,8 +236,7 @@ if (PLATFORM === 'win32') {
       const entries = readdirSync(figmaBase);
       const appFolders = entries
         .filter(e => e.startsWith('app-'))
-        .sort()
-        .reverse();
+        .sort(byVersionDesc);
 
       for (const folder of appFolders) {
         const exePath = join(figmaBase, folder, 'Figma.exe');
