@@ -7,9 +7,10 @@
 
 // Show minimal UI (needed for WebSocket connection). The file name goes into the
 // UI up front so its first hello can say which file this window serves; `<` is
-// escaped because it lands inside a <script>.
+// escaped because it lands inside a <script>. A replacer function keeps `$` in
+// a file name literal: `$&` and `$'` are replacement patterns in a string.
 const fileName = JSON.stringify(figma.root.name || 'Untitled').replace(/</g, '\\u003c');
-figma.showUI(__html__.replace('"__FIGCLI_FILE__"', fileName), {
+figma.showUI(__html__.replace('"__FIGCLI_FILE__"', () => fileName), {
   width: 200,
   height: 96,
   position: { x: -9999, y: 9999 }  // Bottom-left (push to far left)
